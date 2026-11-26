@@ -95,7 +95,7 @@ describe('Flow A: text task', () => {
     const task = (await t.as(tok.riya!).get(`/v1/threads/${th.id}/messages`)).body.items.find((x: { task: { id: string } }) => x.task.id === r.body.task.id).task;
     expect(task).toMatchObject({ priority: 'High', module: 'Power BI', customerPhone: '9876543210', licenseNo: 'LIC-77', customerName: 'Kaveri Steel' });
     // High priority: due 4 hours after it was sent
-    expect(Math.abs(new Date(task.dueAt).getTime() - new Date(task.createdAt).getTime() - 4 * 3600_000)).toBeLessThan(5); // SQL Server rounds to ~1 ms
+    expect(new Date(task.dueAt).getTime()).toBeGreaterThan(new Date(task.createdAt).getTime()); // accept deadline in working hours (30 working min for High)
   });
 
   it('marks the task "needs review" when AI is down, and still notifies', async () => {
@@ -196,7 +196,7 @@ describe('Flow C: accept, reassign, status', () => {
     expect((await t.as(tok.priya!).post(`/v1/tasks/${r.body.task.id}/accept`)).status).toBe(403);
   });
 
-  it('head reassigns inside the department; assignee moves it to In progress and Closed', async () => {
+  it('head reassigns inside the department; assignee works it, requester verifies and closes', async () => {
     const th = await openDept('riya', 'Development');
     const r = await send('riya', th.id, { bodyText: 'Power BI dashboard totals wrong' });
     const taskId = r.body.task.id;
@@ -205,13 +205,16 @@ describe('Flow C: accept, reassign, status', () => {
     expect((await t.as(tok.tushar!).post(`/v1/tasks/${taskId}/reassign`, { assigneeId: id('priya') })).status).toBe(400); // other department
     const re = await t.as(tok.tushar!).post(`/v1/tasks/${taskId}/reassign`, { assigneeId: id('vishwas') });
     expect(re.body.task).toMatchObject({ assigneeId: id('vishwas'), status: 'Accepted' });
-    expect((await t.as(tok.dhaval!).post(`/v1/tasks/${taskId}/status`, { status: 'InProgress' })).status).toBe(403);
-    expect((await t.as(tok.vishwas!).post(`/v1/tasks/${taskId}/status`, { status: 'InProgress' })).body.task.status).toBe('InProgress');
-    const closed = await t.as(tok.vishwas!).post(`/v1/tasks/${taskId}/status`, { status: 'Closed' });
-    expect(closed.body.task.closedAt).toBeTruthy();
-    expect((await t.as(tok.vishwas!).post(`/v1/tasks/${taskId}/status`, { status: 'InProgress' })).status).toBe(400);
+    const act = (who: keyof typeof P, a: string, body: object = {}) => t.as(tok[who]!).post(`/v1/tasks/${taskId}/actions/${a}`, body);
+    expect((await act('dhaval', 'in_progress')).status).toBe(403);
+    expect((await act('vishwas', 'in_progress')).body.task.status).toBe('InProgress');
+    expect((await act('vishwas', 'complete', { remarks: 'Fixed the measure' })).body.task.status).toBe('Completed');
+    expect((await act('vishwas', 'verify')).status).toBe(403); // only the requester verifies
+    expect((await act('riya', 'verify')).body.task.status).toBe('Verified');
+    const closed = await act('riya', 'close', { resolution: 'Totals match now', customerInformed: 'yes' });
+    expect(closed.body.task).toMatchObject({ status: 'Closed', resolution: 'Totals match now', customerInformed: 'yes' });
     const events = await t.db.selectFrom('task_events').select('type').where('task_id', '=', taskId).orderBy('created_at').execute();
-    expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['created', 'structured', 'accepted', 'reassigned', 'status_changed', 'closed']));
+    expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['created', 'structured', 'accepted', 'reassigned', 'status_changed', 'completed', 'verified', 'closed']));
   });
 
   it('pushes a tagged department task to the tagged person only (D3)', async () => {
@@ -242,7 +245,9 @@ describe('Flow D: filters', () => {
     const counts = (await t.as(tok.supLead!).get('/v1/tasks/counts')).body;
     expect(counts.overdue).toBeGreaterThan(0);
     await t.as(tok.supLead!).post(`/v1/tasks/${r.body.task.id}/accept`);
-    await t.as(tok.supLead!).post(`/v1/tasks/${r.body.task.id}/status`, { status: 'Closed' });
+    await t.as(tok.supLead!).post(`/v1/tasks/${r.body.task.id}/actions/complete`, { remarks: 'Activated' });
+    await t.as(tok.karan!).post(`/v1/tasks/${r.body.task.id}/actions/verify`);
+    await t.as(tok.karan!).post(`/v1/tasks/${r.body.task.id}/actions/close`, { resolution: 'Key works', customerInformed: 'n/a' });
     expect((await t.as(tok.karan!).get('/v1/tasks?filter=closed')).body.items[0].task.id).toBe(r.body.task.id);
     expect((await t.as(tok.supLead!).get('/v1/tasks?filter=my_pending')).body.items.map((x: { task: { id: string } }) => x.task.id)).not.toContain(r.body.task.id);
   });
@@ -264,7 +269,7 @@ describe('decisions D1, D4: sent by me, cancel', () => {
 
     await t.as(tok.priya!).post(`/v1/tasks/${b.body.task.id}/accept`);
     const late = await t.as(tok.karan!).post(`/v1/tasks/${b.body.task.id}/cancel`);
-    expect(late.status).toBe(409);
+    expect(late.status).toBe(403); // no longer offered once accepted
   });
 
   it('serves a stored file only with a valid signed link', async () => {

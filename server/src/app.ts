@@ -21,6 +21,7 @@ import { uploadRoutes } from './modules/uploads/routes';
 import { deviceRoutes } from './modules/users/devices';
 import { startRealtime, type Realtime } from './realtime';
 import { DiskStorage } from './storage/disk';
+import { tick } from './workflow/timers';
 
 export interface Services extends Providers { realtime: Realtime; jobs: JobQueue; handlers: JobHandlers; metrics: Metrics }
 
@@ -72,7 +73,12 @@ export async function buildApp({ env, db, logger, providers, metrics = createMet
     ? setInterval(() => { store.deleteOlderThan(env.FILE_RETENTION_DAYS).then((n) => { if (n) logger.info({ removed: n }, 'old files deleted'); }).catch((e) => logger.error({ err: (e as Error).message }, 'file clean-up failed')); }, 6 * 3600_000)
     : undefined;
   retention?.unref();
-  app.addHook('onClose', async () => { clearInterval(retention); await services.jobs.close(); await services.realtime.close(); });
+  // Ornate's timers every minute. With BullMQ the worker runs them instead (one place only).
+  const timers = env.QUEUE_MODE === 'inline' && env.NODE_ENV !== 'test'
+    ? setInterval(() => { tick({ db, realtime: services.realtime, jobs: () => services.jobs, log: logger }).catch((e) => logger.error({ err: (e as Error).message }, 'timers failed')); }, 60_000)
+    : undefined;
+  timers?.unref();
+  app.addHook('onClose', async () => { clearInterval(retention); clearInterval(timers); await services.jobs.close(); await services.realtime.close(); });
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) return reply.code(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });

@@ -17,10 +17,13 @@ export const messageDto = (m: Message, attachments: AttachmentRow[] = []) => ({
   transcript: m.transcript,
   transcriptLang: m.transcript_lang,
   attachments: attachments.map((a) => ({ id: a.id, key: a.r2_key, mime: a.mime, sizeBytes: a.size_bytes, width: a.width, height: a.height })),
+  replyToTaskId: m.reply_to_task_id,
   createdAt: iso(m.created_at),
 });
 
-export const taskDto = (t: Task, warnings: string[] = []) => ({
+const parseJson = <T>(s: unknown, d: T): T => { try { return typeof s === 'string' ? (JSON.parse(s) as T) : d; } catch { return d; } };
+
+export const taskDto = (t: Task, warnings: string[] = [], actions: string[] = []) => ({
   id: t.id,
   messageId: t.message_id,
   threadId: t.thread_id,
@@ -41,7 +44,21 @@ export const taskDto = (t: Task, warnings: string[] = []) => ({
   aiError: t.ai_error,
   overrides: JSON.parse(t.overrides as unknown as string) as Record<string, string>,
   warnings,
-  dueAt: iso(t.due_at),
+  dueAt: new Date(t.due_at).getUTCFullYear() >= 9999 ? null : iso(t.due_at), // paused clock: no due time
+  teamId: t.team_id,
+  clock: { state: t.clock_state, usedMs: Number(t.clock_used_ms), runningSince: iso(t.clock_running_since), usedBeforeTransfer: t.used_before_transfer == null ? null : Number(t.used_before_transfer) },
+  acceptedAt: iso(t.accepted_at),
+  completedAt: iso(t.completed_at),
+  verifiedAt: iso(t.verified_at),
+  resolution: t.resolution,
+  customerInformed: t.customer_informed,
+  escalationLevel: t.escalation_level,
+  escalatedTo: parseJson<string[]>(t.escalated_to, []),
+  reassignRequestedBy: t.reassign_requested_by,
+  request: parseJson<Record<string, unknown> | null>(t.request, null),
+  transferredFromId: t.transferred_from_id,
+  /** The buttons this viewer gets (the server's rules). */
+  actions,
   closedAt: iso(t.closed_at),
   createdAt: iso(t.created_at),
   updatedAt: iso(t.updated_at),

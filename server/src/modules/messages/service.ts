@@ -7,6 +7,9 @@ import { badRequest } from '../../lib/errors';
 import { Id, parse } from '../../lib/validate';
 import { KEY_PATTERN, type StorageProvider } from '../../storage/StorageProvider';
 import { type AttachmentRow, messageDto, taskDto } from '../dto';
+import { loadOrg } from '../org';
+import { acceptDue, loadHolidays, shiftOf, start } from '../../workflow/clock';
+import { available } from '../../workflow/engine';
 
 const Priority = z.enum(['Critical', 'High', 'Medium', 'Low']);
 export const Overrides = z.object({
@@ -25,6 +28,8 @@ export const NewMessage = z.object({
   attachmentKeys: z.array(z.string().regex(KEY_PATTERN)).max(10).default([]),
   overrides: Overrides.default({}),
   taggedUserId: Id.optional(),
+  /** An answer or comment on an existing task in this chat: saved as a message, no new task. */
+  replyToTaskId: Id.optional(),
 }).superRefine((m, ctx) => {
   if (m.kind === 'text' && !m.bodyText) ctx.addIssue({ code: 'custom', path: ['bodyText'], message: 'Type a message.' });
   if (m.kind === 'voice' && (!m.audioKey || !m.audioDurationS)) ctx.addIssue({ code: 'custom', path: ['audioKey'], message: 'Voice note missing.' });
@@ -62,7 +67,11 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
     heads.set(k, h);
   }
 
+  if (body.replyToTaskId) return reply(db, me, thread, body);
+
   const priority: Priority = body.overrides.priority ?? env.DEFAULT_PRIORITY;
+  const holidays = await loadHolidays(db);
+  const now = new Date();
   try {
     const out = await db.transaction().execute(async (tx) => {
       const message = await tx.insertInto('messages').values({
@@ -75,7 +84,7 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
         await tx.insertInto('attachments').values({ message_id: message.id, r2_key: k, mime: h.mime, size_bytes: h.sizeBytes, width: null, height: null }).execute();
       }
       const task = await tx.insertInto('tasks').values({
-        message_id: message.id, thread_id: thread.id, priority, due_at: dueAt(env, priority),
+        message_id: message.id, thread_id: thread.id, priority, queued_at: now, due_at: acceptDue(now, priority, holidays),
         department_id: thread.department_id, team_id: thread.team_id, tagged_user_id: body.taggedUserId ?? null,
         overrides: JSON.stringify(body.overrides),
         subject: null, module: null, customer_name: null, customer_phone: null, customer_location: null, license_no: null,
@@ -103,8 +112,9 @@ export async function loadMessage(db: Db, id: string) {
   return m!;
 }
 
-/** Messages with their attachments and task (and the task's latest check warnings). */
-export async function withTasks(db: Db, messages: Message[]) {
+/** Messages with their attachments and task (and the task's latest check warnings). With a viewer, each task
+ *  also carries the actions that person may take. */
+export async function withTasks(db: Db, messages: Message[], viewerId?: string) {
   if (!messages.length) return [];
   const ids = messages.map((m) => m.id);
   const [atts, tasks] = await Promise.all([
@@ -112,11 +122,20 @@ export async function withTasks(db: Db, messages: Message[]) {
     db.selectFrom('tasks').selectAll().where('message_id', 'in', ids).execute(),
   ]);
   const warnings = await warningsFor(db, tasks);
+  let actionsOf = (_t: Task): string[] => [];
+  if (viewerId && tasks.length) {
+    const [org, holidays, me, threads] = await Promise.all([loadOrg(db), loadHolidays(db),
+      db.selectFrom('users').select(['id', 'role', 'department_id', 'team_id']).where('id', '=', viewerId).executeTakeFirst(),
+      db.selectFrom('threads').selectAll().where('id', 'in', [...new Set(tasks.map((t) => t.thread_id))]).execute()]);
+    const now = new Date();
+    if (me) actionsOf = (t) => available({ db, env: undefined as never, org, holidays, now, me, task: t,
+      thread: threads.find((x) => x.id === t.thread_id)!, senderId: messages.find((m) => m.id === t.message_id)!.sender_id });
+  }
   return messages.map((m) => {
     const task = tasks.find((t) => t.message_id === m.id);
     return {
       message: messageDto(m, atts.filter((a) => a.message_id === m.id) as AttachmentRow[]),
-      task: task ? taskDto(task, warnings.get(task.id) ?? []) : null,
+      task: task ? taskDto(task, warnings.get(task.id) ?? [], actionsOf(task)) : null,
     };
   });
 }
@@ -132,7 +151,7 @@ export async function warningsFor(db: Db, tasks: Pick<Task, 'id'>[]) {
 }
 
 /** History page: oldest first within the page; `before` is the oldest message id the phone already has. */
-export async function listMessages(db: Db, thread: Thread, before: string | undefined, limit: number) {
+export async function listMessages(db: Db, thread: Thread, before: string | undefined, limit: number, viewerId?: string) {
   let q = db.selectFrom('messages').selectAll().where('thread_id', '=', thread.id);
   if (before) {
     const ref = await db.selectFrom('messages').select('id').where('id', '=', before).where('thread_id', '=', thread.id).executeTakeFirst();
@@ -143,9 +162,35 @@ export async function listMessages(db: Db, thread: Thread, before: string | unde
   }
   const page = await q.orderBy('created_at', 'desc').orderBy('id', 'desc').top(limit + 1).execute();
   const more = page.length > limit;
-  const items = (await withTasks(db, page.slice(0, limit))).reverse();
+  const items = (await withTasks(db, page.slice(0, limit), viewerId)).reverse();
   return { items, nextCursor: more ? items[0]!.message.id : null };
 }
 
 export type MessageWithTask = Awaited<ReturnType<typeof loadMessage>>;
 export type { Task };
+
+/** A reply on a task (Ornate's "answer the question"): no new task. When the requester answers a question,
+ *  the task goes back to In progress and its clock runs again. */
+async function reply(db: Db, me: User, thread: Thread, body: NewMessage) {
+  const t = await db.selectFrom('tasks').selectAll().where('id', '=', body.replyToTaskId!).where('thread_id', '=', thread.id).executeTakeFirst();
+  if (!t) throw badRequest('That task is not in this chat.');
+  const sender = (await db.selectFrom('messages').select('sender_id').where('id', '=', t.message_id).executeTakeFirstOrThrow()).sender_id;
+  const now = new Date();
+  let answered = false;
+  const holidays = await loadHolidays(db);
+  const id = await db.transaction().execute(async (tx) => {
+    const m = await tx.insertInto('messages').values({
+      thread_id: thread.id, sender_id: me.id, client_msg_id: body.clientMsgId, kind: body.kind, body_text: body.bodyText || null,
+      audio_key: body.audioKey ?? null, audio_duration_s: body.audioDurationS ?? null, transcript: null, transcript_lang: null, reply_to_task_id: t.id,
+    }).output('inserted.id').executeTakeFirstOrThrow();
+    if (t.status === 'WaitingInfo' && sender === me.id) {
+      const shift = shiftOf((await tx.selectFrom('users').select('shift').where('id', '=', t.assignee_id ?? me.id).executeTakeFirst())?.shift);
+      await tx.updateTable('tasks').set({ status: 'InProgress', ...start(t, now, shift, holidays), updated_at: now }).where('id', '=', t.id).execute();
+      await tx.insertInto('task_events').values({ task_id: t.id, actor_id: me.id, type: 'answered', payload: JSON.stringify({ messageId: m.id }) }).execute();
+      answered = true;
+    }
+    await tx.updateTable('threads').set({ last_message_at: now }).where('id', '=', thread.id).execute();
+    return m.id;
+  });
+  return { created: true, answered, replyTo: t, ...(await loadMessage(db, id)) };
+}

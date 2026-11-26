@@ -5,7 +5,8 @@ import type { Overrides, Task, Thread } from '../db/schema';
 import type { Logger } from '../lib/logger';
 import { otherUserId, threadRooms } from '../modules/access';
 import { taskDto } from '../modules/dto';
-import { dueAt, warningsFor } from '../modules/messages/service';
+import { warningsFor } from '../modules/messages/service';
+import { acceptDue, loadHolidays } from '../workflow/clock';
 import type { Realtime } from '../realtime';
 import type { PushProvider } from '../push/PushProvider';
 import type { StorageProvider } from '../storage/StorageProvider';
@@ -86,7 +87,7 @@ export function jobHandlers(d: JobDeps): JobHandlers {
     const now = new Date();
     await d.db.transaction().execute(async (tx) => {
       await tx.updateTable('tasks').set({
-        ...(value ? { ...value, due_at: dueAt(d.env, value.priority, task.created_at) } : {}),
+        ...(value ? { ...value, ...(task.status === 'Open' ? { due_at: acceptDue(new Date(task.queued_at ?? task.created_at), value.priority, await loadHolidays(d.db)) } : {}) } : {}),
         ai_status: value ? 'done' : 'needs_review',
         ai_error: error?.slice(0, 400) ?? null,
         ai_provider: provider,
@@ -101,7 +102,7 @@ export function jobHandlers(d: JobDeps): JobHandlers {
     await d.jobs().enqueue('notify', { taskId: task.id, kind: 'created' }, { jobId: `notify:${task.id}:created` });
   }
 
-  async function notify({ taskId, kind, toUserIds }: { taskId: string; kind: NotifyKind; toUserIds?: string[] }) {
+  async function notify({ taskId, kind, toUserIds, text }: { taskId: string; kind: NotifyKind; toUserIds?: string[]; text?: string }) {
     const task = await loadTask(taskId);
     const [m, thread] = await Promise.all([
       d.db.selectFrom('messages').select(['sender_id', 'body_text', 'transcript']).where('id', '=', task.message_id).executeTakeFirstOrThrow(),
@@ -118,7 +119,7 @@ export function jobHandlers(d: JobDeps): JobHandlers {
     const what = task.subject ?? (m.body_text ?? m.transcript ?? 'Voice note').slice(0, 80);
     const msg = kind === 'created'
       ? { title: `${sender.name}${task.priority === 'High' ? ' · High' : ''}`, body: what }
-      : { title: 'Task update', body: `${what}: ${task.status === 'InProgress' ? 'In progress' : task.status}` };
+      : { title: what, body: text ? text.charAt(0).toUpperCase() + text.slice(1) : (task.status === 'InProgress' ? 'In progress' : task.status) };
 
     const tokens = await d.db.selectFrom('device_tokens').select('fcm_token').where('user_id', 'in', to).execute();
     const { invalidTokens } = await d.push.send(tokens.map((t) => t.fcm_token), { ...msg, threadId: thread.id, taskId: task.id });

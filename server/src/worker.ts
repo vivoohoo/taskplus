@@ -9,6 +9,7 @@ import { bullmqQueue, bullmqWorker } from './jobs/queue';
 import { createLogger } from './lib/logger';
 import { createMetrics } from './lib/metrics';
 import type { Realtime } from './realtime';
+import { tick } from './workflow/timers';
 
 
 const env = loadEnv();
@@ -28,8 +29,10 @@ const realtime: Realtime = {
 const jobs = bullmqQueue(env.REDIS_URL, env.JOB_MAX_ATTEMPTS);
 const handlers = jobHandlers({ env, db, log, realtime, ...providers, metrics, jobs: () => jobs });
 const worker = bullmqWorker(env.REDIS_URL, handlers, { log });
+// Ornate's timers: run here (one worker process) when jobs are on BullMQ.
+const timers = setInterval(() => { tick({ db, realtime, jobs: () => jobs, log }).catch((e) => log.error({ err: (e as Error).message }, 'timers failed')); }, 60_000);
 log.info('worker started');
 
-const stop = async () => { await worker.close(); await jobs.close(); await realtime.close(); await db.destroy(); process.exit(0); };
+const stop = async () => { clearInterval(timers); await worker.close(); await jobs.close(); await realtime.close(); await db.destroy(); process.exit(0); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

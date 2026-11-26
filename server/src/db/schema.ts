@@ -15,6 +15,9 @@ export type TaskEventType = 'created' | 'structured' | 'accepted' | 'reassigned'
   | 'question' | 'answered' | 'blocked' | 'unblocked' | 'request' | 'request_refused' | 'rejected' | 'transferred' | 'escalated' | 'attended'
   | 'priority_changed' | 'warned';
 
+export type ClockState = 'not started' | 'running' | 'paused' | 'stopped';
+export type EscalationLevel = 'team_lead' | 'dept_head' | 'management';
+
 export interface Overrides { priority?: Priority; customer?: string; license?: string; module?: string }
 
 export interface Database {
@@ -24,7 +27,9 @@ export interface Database {
     avatar_url: string | null; is_active: Generated<boolean>; created_at: Stamp; updated_at: Stamp;
     password_hash: Buffer | null; password_salt: Buffer | null; failed_logins: Generated<number>; locked_until: Date | null;
     team_id: Generated<string | null>; reports_to_id: Generated<string | null>;
+    shift: Generated<number>; away: Generated<boolean>;
   };
+  holidays: { day: Date; name: string | null };
   teams: { id: Id; department_id: string; name: string; lead_id: string | null; created_at: Stamp };
   device_tokens: { id: Id; user_id: string; fcm_token: string; platform: 'android' | 'ios'; last_seen_at: Stamp };
   threads: {
@@ -38,6 +43,7 @@ export interface Database {
     id: Id; thread_id: string; sender_id: string; client_msg_id: string; kind: MessageKind;
     body_text: string | null; audio_key: string | null; audio_duration_s: number | null;
     transcript: string | null; transcript_lang: string | null; created_at: Stamp;
+    reply_to_task_id: Generated<string | null>;
   };
   attachments: { id: Id; message_id: string; r2_key: string; mime: string; size_bytes: number; width: number | null; height: number | null };
   tasks: {
@@ -47,6 +53,13 @@ export interface Database {
     status: Generated<TaskStatus>; assignee_id: string | null; tagged_user_id: string | null; department_id: string | null; team_id: Generated<string | null>;
     ai_status: Generated<AiStatus>; ai_error: string | null; ai_provider: string | null; prompt_version: string | null;
     overrides: Json<Overrides>; due_at: Date; closed_at: Date | null; created_at: Stamp; updated_at: Stamp;
+    clock_state: Generated<ClockState>; clock_used_ms: Generated<number | string>; clock_running_since: Generated<Date | null>;
+    used_before_transfer: Generated<number | string | null>; queued_at: Generated<Date | null>; accepted_at: Generated<Date | null>;
+    completed_at: Generated<Date | null>; verified_at: Generated<Date | null>; resolution: Generated<string | null>;
+    customer_informed: Generated<'yes' | 'no' | 'n/a' | null>; escalation_level: Generated<EscalationLevel | null>;
+    escalated_to: Generated<string>; auto_escalated_at: Generated<Date | null>; head_alerted: Generated<boolean>;
+    reassign_requested_by: Generated<string | null>; reassign_asked: Generated<string>; declined_by: Generated<string>;
+    request: Generated<string | null>; warned: Generated<string>; transferred_from_id: Generated<string | null>;
   };
   task_events: { id: Id; task_id: string; actor_id: string | null; type: TaskEventType; payload: Json<Record<string, unknown>>; created_at: Stamp };
 }

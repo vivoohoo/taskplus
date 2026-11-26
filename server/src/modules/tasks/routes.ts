@@ -3,16 +3,16 @@ import { sql } from 'kysely';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Task, TaskStatus, Thread, User } from '../../db/schema';
-import { badRequest, conflict, forbidden, notFound } from '../../lib/errors';
+import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { Id, parse } from '../../lib/validate';
 import { canSeeThread, currentUser, otherUserId, threadRooms } from '../access';
 import { taskDto } from '../dto';
-import { warningsFor, withTasks } from '../messages/service';
+import { loadMessage, warningsFor, withTasks } from '../messages/service';
+import { loadHolidays } from '../../workflow/clock';
+import { ACTIONS, run, type Action, type Ctx } from '../../workflow/engine';
 import { loadOrg, manages, teamsLedBy } from '../org';
 
 const OPEN: TaskStatus[] = ['Open', 'Accepted', 'InProgress'];
-/** Allowed moves for the assignee. */
-const NEXT: Partial<Record<TaskStatus, TaskStatus[]>> = { Accepted: ['InProgress', 'Closed'], InProgress: ['Closed'] };
 
 export async function taskRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
@@ -34,33 +34,51 @@ export async function taskRoutes(app: FastifyInstance) {
     return r?.department_id ?? null;
   }
 
-  async function changed(task: Task, thread: Thread, senderId: string, event: { type: string; payload: Record<string, unknown> }, push?: { kind: string; to?: string[] }) {
+  async function changed(task: Task, thread: Thread, senderId: string, event: { type: string; payload: Record<string, unknown> },
+    push?: { kind: string; to?: string[]; text?: string }, viewerId?: string) {
     const fresh = await db.selectFrom('tasks').selectAll().where('id', '=', task.id).executeTakeFirstOrThrow();
-    const dto = taskDto(fresh, (await warningsFor(db, [fresh])).get(fresh.id) ?? []);
+    const dto = viewerId ? (await withTasks(db, [await db.selectFrom('messages').selectAll().where('id', '=', fresh.message_id).executeTakeFirstOrThrow()], viewerId))[0]!.task!
+      : taskDto(fresh, (await warningsFor(db, [fresh])).get(fresh.id) ?? []);
     const rooms = [...threadRooms(thread), `user:${senderId}`, ...(fresh.assignee_id ? [`user:${fresh.assignee_id}`] : [])];
     app.services.realtime.emit(rooms, 'task.updated', { task: dto, event });
-    if (push) await app.services.jobs.enqueue('notify', { taskId: task.id, kind: push.kind, toUserIds: push.to }, { jobId: `notify:${task.id}:${push.kind}:${Date.now()}` });
+    if (push) await app.services.jobs.enqueue('notify', { taskId: task.id, kind: push.kind, toUserIds: push.to, text: push.text }, { jobId: `notify:${task.id}:${push.kind}:${Date.now()}` });
     return dto;
   }
 
-  app.post('/tasks/:id/accept', async (req) => {
+  /** Any workflow action (docs/PARITY.md step 3). The engine checks who may do it; the result is saved, shown live and pushed. */
+  async function act(req: { params: unknown; body: unknown; userId: string }, action: Action) {
     const { id } = parse(z.object({ id: Id }), req.params);
     const me = await currentUser(db, req.userId);
     const { task, thread, senderId } = await load(me, id);
-    if (senderId === me.id) throw forbidden('You sent this task.');
-    const recipient = thread.type === 'direct' ? otherUserId(thread, senderId) === me.id : thread.department_id === me.department_id;
-    if (!recipient) throw forbidden('Only the recipient can accept this task.');
-    // Atomic: only one person can move it out of Open.
-    const won = await sql<{ id: string }>`UPDATE tasks SET status = 'Accepted', assignee_id = ${me.id}, updated_at = SYSDATETIMEOFFSET()
-      OUTPUT inserted.id WHERE id = ${task.id} AND status = 'Open'`.execute(db);
-    if (!won.rows.length) {
-      const now = await db.selectFrom('tasks').innerJoin('users', 'users.id', 'tasks.assignee_id').select(['users.id', 'users.name']).where('tasks.id', '=', task.id).executeTakeFirst();
-      throw conflict('ALREADY_ACCEPTED', now ? `${now.name} already accepted this task.` : 'This task is no longer open.', { acceptedBy: now ?? null });
+    const ctx: Ctx = { db, env: app.env, org: await loadOrg(db), holidays: await loadHolidays(db), now: new Date(), me, task, thread, senderId };
+    const r = await run(ctx, action, req.body);
+    await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: r.type, payload: JSON.stringify(r.payload) }).execute();
+    const to = [...new Set(r.push?.to ?? [])].filter((x) => x && x !== me.id);
+    const dto = await changed(task, thread, senderId, { type: r.type, payload: r.payload }, to.length ? { kind: 'status', to, text: r.push!.text } : undefined, me.id);
+    if (r.newTaskId) {
+      const nt = await db.selectFrom('tasks').select(['id', 'message_id', 'thread_id']).where('id', '=', r.newTaskId).executeTakeFirstOrThrow();
+      const nthread = await db.selectFrom('threads').selectAll().where('id', '=', nt.thread_id).executeTakeFirstOrThrow();
+      app.services.realtime.emit(threadRooms(nthread), 'message.created', await loadMessage(db, nt.message_id));
+      await app.services.jobs.enqueue('notify', { taskId: nt.id, kind: 'created' }, { jobId: `notify:${nt.id}:created` });
     }
-    const payload = { by: me.id };
-    await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'accepted', payload: JSON.stringify(payload) }).execute();
-    return { task: await changed(task, thread, senderId, { type: 'accepted', payload }, { kind: 'accepted' }) };
+    return { task: dto };
+  }
+
+  /** One task with this viewer's buttons: the app re-reads it after a live event (events are shared by many viewers). */
+  app.get('/tasks/:id', async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const me = await currentUser(db, req.userId);
+    const { task } = await load(me, id);
+    const m = await db.selectFrom('messages').selectAll().where('id', '=', task.message_id).executeTakeFirstOrThrow();
+    return (await withTasks(db, [m], me.id))[0];
   });
+
+  app.post('/tasks/:id/actions/:action', async (req) => {
+    const { action } = parse(z.object({ action: z.enum(ACTIONS) }), req.params);
+    return act(req, action);
+  });
+  app.post('/tasks/:id/accept', async (req) => act(req, 'accept'));
+  app.post('/tasks/:id/cancel', async (req) => act(req, 'cancel'));
 
   app.post('/tasks/:id/reassign', async (req) => {
     const { id } = parse(z.object({ id: Id }), req.params);
@@ -78,42 +96,12 @@ export async function taskRoutes(app: FastifyInstance) {
     if (!target || !deptId || target.department_id !== deptId) throw badRequest('Choose someone in the same department.');
     if (!isHead && task.assignee_id !== me.id && !manages(org, me.id, target.id) && target.id !== me.id) throw badRequest('Choose someone in a team you lead.');
     if (target.id === task.assignee_id) throw badRequest('They already have this task.');
-    await db.updateTable('tasks').set({ assignee_id: target.id, status: task.status === 'Open' ? 'Accepted' : task.status, updated_at: new Date() })
+    await db.updateTable('tasks').set({ assignee_id: target.id, status: task.status === 'Open' ? 'Accepted' : task.status, reassign_requested_by: null,
+      ...(task.status === 'Open' ? { accepted_at: new Date(), clock_state: 'running' as const, clock_running_since: new Date() } : {}), updated_at: new Date() })
       .where('id', '=', task.id).execute();
     const payload = { from: task.assignee_id, to: target.id };
     await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'reassigned', payload: JSON.stringify(payload) }).execute();
-    return { task: await changed(task, thread, senderId, { type: 'reassigned', payload }, { kind: 'reassigned', to: [target.id, senderId] }) };
-  });
-
-  app.post('/tasks/:id/status', async (req) => {
-    const { id } = parse(z.object({ id: Id }), req.params);
-    const { status } = parse(z.object({ status: z.enum(['InProgress', 'Closed']) }), req.body);
-    const me = await currentUser(db, req.userId);
-    const { task, thread, senderId } = await load(me, id);
-    if (task.assignee_id !== me.id) throw forbidden('Only the assignee can change the status.');
-    if (!(NEXT[task.status] ?? []).includes(status)) throw badRequest(`Can't go from ${task.status} to ${status}.`);
-    const now = new Date();
-    const r = await db.updateTable('tasks').set({ status, closed_at: status === 'Closed' ? now : null, updated_at: now })
-      .where('id', '=', task.id).where('status', '=', task.status).executeTakeFirst();
-    if (!Number(r.numUpdatedRows)) throw conflict('CHANGED', 'This task just changed. Refresh and try again.');
-    const type = status === 'Closed' ? 'closed' : 'status_changed';
-    const payload = { from: task.status, to: status };
-    await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type, payload: JSON.stringify(payload) }).execute();
-    return { task: await changed(task, thread, senderId, { type, payload }, { kind: 'status' }) };
-  });
-
-  // D4: the sender may cancel while nobody has accepted it yet.
-  app.post('/tasks/:id/cancel', async (req) => {
-    const { id } = parse(z.object({ id: Id }), req.params);
-    const me = await currentUser(db, req.userId);
-    const { task, thread, senderId } = await load(me, id);
-    if (senderId !== me.id) throw forbidden('Only the person who sent it can cancel it.');
-    const r = await db.updateTable('tasks').set({ status: 'Cancelled', closed_at: new Date(), updated_at: new Date() })
-      .where('id', '=', task.id).where('status', '=', 'Open').executeTakeFirst();
-    if (!Number(r.numUpdatedRows)) throw conflict('CHANGED', 'It has already been accepted, so it can no longer be cancelled.');
-    await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'cancelled', payload: '{}' }).execute();
-    const notify = task.assignee_id ?? task.tagged_user_id;
-    return { task: await changed(task, thread, senderId, { type: 'cancelled', payload: {} }, notify ? { kind: 'status', to: [notify] } : undefined) };
+    return { task: await changed(task, thread, senderId, { type: 'reassigned', payload }, { kind: 'reassigned', to: [target.id, senderId] }, me.id) };
   });
 
   // Flow D. my_pending: open and mine, or unclaimed and sent to me / my department. overdue: that, past due. closed: mine, newest first.
@@ -148,7 +136,7 @@ export async function taskRoutes(app: FastifyInstance) {
     }
     const rows = await q.orderBy('tasks.id').offset(cursor).fetch(limit + 1).execute();
     const msgs = rows.length ? await db.selectFrom('messages').selectAll().where('id', 'in', rows.slice(0, limit).map((r) => r.message_id)).execute() : [];
-    const byId = new Map((await withTasks(db, msgs)).map((x) => [x.message.id, x]));
+    const byId = new Map((await withTasks(db, msgs, me.id)).map((x) => [x.message.id, x]));
     return {
       items: rows.slice(0, limit).map((r) => byId.get(r.message_id)!),
       nextCursor: rows.length > limit ? cursor + limit : null,
