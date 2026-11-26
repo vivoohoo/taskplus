@@ -36,14 +36,53 @@ USE taskplus; CREATE USER taskplus_app FOR LOGIN taskplus_app;
 ALTER ROLE db_datareader ADD MEMBER taskplus_app; ALTER ROLE db_datawriter ADD MEMBER taskplus_app;
 ```
 
-Run migrations with an admin login, the API with `taskplus_app`. The SQL Server must allow SQL logins (mixed mode); Windows-only sign-in won't work with the Node driver.
+Run migrations with an admin login, the API with `taskplus_app`. Put each comment in `.env` on its own line: text after a value becomes part of the value. The SQL Server must allow SQL logins (mixed mode); Windows-only sign-in won't work with the Node driver.
+
+## App
+
+```sh
+cd app
+flutter pub get
+dart run build_runner build          # generates the outbox database code
+flutter run                          # emulator: talks to http://10.0.2.2:8080
+flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8080   # a real phone on the office Wi-Fi
+```
+
+Debug builds may use plain `http`; release builds need `https`.
+
+### Firebase (push)
+
+1. Create a Firebase project; add an Android app `com.taskplus.taskplus` and an iOS app with the same bundle id.
+2. Put `google-services.json` in `app/android/app/` and `GoogleService-Info.plist` in `app/ios/Runner/`.
+3. In `app/android/settings.gradle.kts` add `id("com.google.gms.google-services") version "4.4.2" apply false` to `plugins`, and in `app/android/app/build.gradle.kts` add `id("com.google.gms.google-services")`.
+4. Server: Project settings → Service accounts → Generate key; base64 it (`base64 -w0 key.json`) into `FIREBASE_SERVICE_ACCOUNT_JSON`.
+
+Until then the app runs normally and push is simply off.
+
+### Release builds
+
+- **Android APK for testers:** `flutter build apk --release --dart-define=API_BASE_URL=https://<server>`, then upload `build/app/outputs/flutter-apk/app-release.apk` in Firebase console → App Distribution, and add testers by email. Make a real signing key first (`keytool -genkey …`) and set it in `android/app/build.gradle.kts`; the template signs release builds with the debug key.
+- **iOS (TestFlight):** needs a Mac with Xcode and an Apple Developer account. `flutter build ipa --dart-define=API_BASE_URL=https://<server>`, then upload with Transporter, and add internal testers in App Store Connect → TestFlight.
 
 ## Tests
 
 ```sh
 cd server
 npm test                      # unit tests + integration tests (start a SQL Server container via Testcontainers; Docker must be running)
-TEST_DATABASE_URL=mssql://... npm test   # use an existing SQL Server instead of a container
+TEST_DATABASE_URL=mssql://sa:...@localhost:1433/master?trustServerCertificate=true npm test   # use a running SQL Server (each test file gets its own database)
+TEST_REDIS_URL=redis://localhost:6379 npm test                                                  # and a running Redis
+npm run test:coverage         # 80% line minimum on modules/, ai/validate.ts, jobs/
+npm run eval                  # real AI against test/fixtures/messages.jsonl; needs GEMINI/GROQ keys
+```
+
+On Windows, run coverage from a path whose drive letter is upper case (`cd D:\...`); otherwise every file is counted twice and coverage looks halved.
+
+App:
+
+```sh
+cd app
+flutter analyze && flutter test
+flutter test integration_test -d <device>     # needs the API running (docker compose up)
 ```
 
 ## Keys needed later (stubbed until then)

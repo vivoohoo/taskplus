@@ -16,7 +16,11 @@ export class FcmPush implements PushProvider {
   readonly name = 'fcm';
   private app: App;
   constructor(serviceAccountBase64: string) {
-    this.app = initializeApp({ credential: cert(JSON.parse(Buffer.from(serviceAccountBase64, 'base64').toString('utf8'))) }, 'taskplus');
+    let account: object;
+    try { account = JSON.parse(Buffer.from(serviceAccountBase64, 'base64').toString('utf8')); } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON must be the service-account JSON file, base64-encoded.');
+    }
+    this.app = initializeApp({ credential: cert(account) }, 'taskplus');
   }
 
   async send(tokens: string[], m: PushMessage) {

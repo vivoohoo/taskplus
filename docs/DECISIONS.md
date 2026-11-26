@@ -19,6 +19,19 @@ One line each: decision — reason — alternative.
 | 11 | AI prototype runs on free tiers with **made-up customer data only** | Owner's decision: free tiers may use content for training | Paid tier from day one |
 | 12 | Built in a new repo `d:\ticketmgmt\taskplus`; the earlier Ornate Samanvay web app and SQL Server API stay untouched | Owner's decision | Replace the earlier server |
 | 13 | Rate limits run after the body is parsed (`hook: preHandler`) so OTP limits can key on the phone number | Spec §13: 10 OTP requests/hour per phone | Limit by IP |
+| 14 | `GET /files/url?key=` instead of `GET /files/:key/url` | Keys contain slashes (`dept/yyyy/mm/uuid.ext`) | Encode the key in the path |
+| 15 | `POST /uploads/presign` also takes `threadId` | The key's folder is the thread's department (or `direct`), and access is checked before signing | Folder chosen when the message is sent (would need a copy in R2) |
+| 16 | Without R2 keys (dev only) files go to an in-memory store served at `/v1/dev-upload/*` | Lets voice and attachments work before R2 is set up; refused in production | Require R2 from day one |
+| 17 | A message's attachment size and type come from a storage `HEAD` | Proves the upload exists and is in this thread's folder before the task is saved | Trust the phone's values |
+| 18 | Added `GET /departments/:id` (members, modules, head) and `GET /tasks/counts` | The app needs members for @mention and Reassign, modules for `/module`, counts for the filter badges | Put them in other responses |
+| 19 | `/tasks` cursor is a numeric offset | Results are sorted by due date/closed date, which change; simple and correct for Phase 1 volumes | Keyset cursor |
+| 20 | A direct-chat task uses the recipient's department for its module list and for Reassign | Direct tasks have no department of their own | Sender's department |
+| 21 | Message rate limit reads the user from the token itself | The limiter can run before sign-in is checked; keying on an empty id would share one limit between everyone | Limit by IP |
+| 22 | Message page cursor compares times inside SQL | The driver rounds JS dates to ~3 ms, which skipped or repeated messages at page edges (caught by a test) | Send times as datetime2 parameters |
+| 23 | Worker emits Socket.IO events through `@socket.io/redis-emitter` | Workers have no HTTP server; phones still get `task.structured` live | Workers call back into the API |
+| 24 | App: Flutter 3.50.1 (Material via `material_ui`), Riverpod 3.5, go_router 18.1, dio 5.11, drift 2.35, socket_io_client 3.1, record 7.2, just_audio 0.10, speech_to_text 7.5, firebase_messaging 17.1, flutter_local_notifications 23.0 | Current stable lines when built | — |
+| 25 | Push is off (quietly) until Firebase config files are added | The app must build and run before a Firebase project exists | Fail at start-up |
+| 26 | Open decisions D1–D6 are built as proposed (My Pending/Overdue/Closed; one department chat per requester; tagged push to tagged person + head; sender sees only their bubble; voice-note lifecycle via R2 rule). D4 (cancel while Open) is **not** built yet | Proposals in the spec; D4 needs your yes | — |
 
 ## Contradictions found in the spec (for Review 1)
 
@@ -30,3 +43,6 @@ One line each: decision — reason — alternative.
 ## Proposed (not built)
 
 - Per-device sign-out (stored refresh tokens) if staff share phones.
+- D4: "Cancel" on a sent task while it is still Open.
+- Read/unread per chat (Phase 1 shows open-task counts only).
+- An admin screen for people and departments (today: seed script / SQL).
