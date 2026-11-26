@@ -47,8 +47,8 @@ One line each: decision — reason — alternative.
 | — | File storage | **Office server disk**, not R2 | Disk storage adapter with signed upload/download links served by our API |
 | — | AI provider | **Free tiers (Gemini + Groq), made-up customer data only** | Owner creates two free API keys |
 | — | Push | **Owner creates the Firebase project** and sends `google-services.json`, `GoogleService-Info.plist` and the service-account key | Wire in once received |
-| — | Trial phones | **Android + iPhone** | iPhone needs an Apple Developer account and a Mac for TestFlight |
-| — | Server access | **Public HTTPS address** (static IP or tunnel to the office server) | Domain + certificate before the trial |
+| — | Trial phones | **Android only** for now (iOS skipped, 26 Nov) | No Apple account or Mac needed yet |
+| — | Server access | **Cloudflare quick tunnel** (`cloudflared tunnel --url http://localhost:8080`): free HTTPS, no account or domain; the trycloudflare.com address changes on every restart | App gets a "Server address" setting on the sign-in screen so a new address needs no new APK; move to a named tunnel + domain before wider rollout |
 
 ## Contradictions found in the spec (for Review 1)
 
