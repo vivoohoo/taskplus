@@ -10,6 +10,8 @@
     "start": "tsx src/index.ts",
     "migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
+    "worker": "tsx src/worker.ts",
+    "eval": "tsx test/eval/run.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -21,6 +23,7 @@
     "@fastify/rate-limit": "^11.3.0",
     "@google/genai": "^1.52.0",
     "@socket.io/redis-adapter": "^8.3.0",
+    "@socket.io/redis-emitter": "^5.1.0",
     "bullmq": "^5.81.6",
     "fastify": "^5.12.8",
     "firebase-admin": "^13.10.0",

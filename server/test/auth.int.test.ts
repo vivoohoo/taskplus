@@ -1,21 +1,14 @@
 // Sign-in, refresh, devices and /healthz against a real SQL Server.
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildApp } from '../src/app';
-import { loadEnv } from '../src/config/env';
-import { createLogger } from '../src/lib/logger';
-import { startTestDb } from './helpers/db';
+import { startTestApp, type TestApp } from './helpers/app';
 
-let ctx: Awaited<ReturnType<typeof startTestDb>>;
-let app: Awaited<ReturnType<typeof buildApp>>;
+let t: TestApp;
+let app: TestApp['app'];
+let ctx: { db: TestApp['db'] };
 
-beforeAll(async () => {
-  ctx = await startTestDb();
-  const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL: ctx.url, JWT_SECRET: 't'.repeat(40), DEV_FIXED_OTP: '123456' });
-  app = await buildApp({ env, db: ctx.db, logger: createLogger('warn') });
-  await app.ready();
-}, 240_000);
-afterAll(async () => { await app?.close(); await ctx?.stop(); });
+beforeAll(async () => { t = await startTestApp(); app = t.app; ctx = t; }, 240_000);
+afterAll(async () => { await t?.stop(); });
 
 const signIn = async (phone = '9800000002') =>
   (await request(app.server).post('/v1/auth/otp/verify').send({ phone, code: '123456' })).body;
