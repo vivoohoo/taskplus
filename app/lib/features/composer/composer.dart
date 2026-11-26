@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -140,7 +141,10 @@ class _ComposerState extends ConsumerState<Composer> {
   }
 
   // ---- voice note: hold to record, slide left to cancel, release to send ----
+  void _phoneOnly(String what) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$what need the phone app.')));
+
   Future<void> _startRecording() async {
+    if (kIsWeb) return _phoneOnly('Voice notes');
     if (!await _recorder.hasPermission()) return;
     final dir = await getTemporaryDirectory();
     final path = '${dir.path}/${const Uuid().v4()}.ogg';
@@ -191,6 +195,7 @@ class _ComposerState extends ConsumerState<Composer> {
 
   // ---- attachments ----
   Future<void> _attach() async {
+    if (kIsWeb) return _phoneOnly('Attachments');
     final how = await showModalBottomSheet<String>(context: context, builder: (_) => SafeArea(child: Wrap(children: [
       ListTile(leading: const Icon(Icons.photo_camera), title: const Text('Camera'), onTap: () => Navigator.pop(context, 'camera')),
       ListTile(leading: const Icon(Icons.photo), title: const Text('Gallery'), onTap: () => Navigator.pop(context, 'gallery')),

@@ -23,6 +23,9 @@ Future<void> main() async {
   runApp(const ProviderScope(child: TaskPlusApp()));
 }
 
+/// The sign-in page; the browser demo swaps in a pick-a-person list.
+Widget Function() loginPage = () => const LoginScreen();
+
 /// Sign-in decides the route: nobody signed in -> /login, otherwise -> /.
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);
@@ -40,7 +43,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/settings/suggestions', builder: (_, _) => const SuggestionsScreen()),
       GoRoute(path: '/chat/:id', builder: (_, s) => ChatScreen(threadId: s.pathParameters['id']!, thread: s.extra as ThreadSummary?)),
       GoRoute(path: '/tasks/:filter', builder: (_, s) => FilterResultsScreen(filter: TaskFilter.values.firstWhere((f) => f.api == s.pathParameters['filter'], orElse: () => TaskFilter.myPending))),
-      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: '/login', builder: (_, _) => loginPage()),
       GoRoute(path: '/loading', builder: (_, _) => const Scaffold(body: Center(child: CircularProgressIndicator()))),
     ],
     redirect: (_, state) {
