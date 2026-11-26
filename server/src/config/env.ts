@@ -1,4 +1,5 @@
 // Every setting the server reads, checked once at startup. Nothing else reads process.env.
+import { existsSync } from 'node:fs';
 import { z } from 'zod';
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
@@ -53,7 +54,12 @@ const Env = z.object({
 export type Env = z.infer<typeof Env>;
 
 /** Parse settings; throws one readable error listing every problem. */
-export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
+export function loadEnv(source?: Record<string, string | undefined>): Env {
+  if (!source) {
+    // server/.env, if present; real environment variables win over it (Node >= 20.12).
+    if (existsSync('.env')) process.loadEnvFile('.env');
+    source = process.env;
+  }
   const r = Env.safeParse(source);
   if (r.success) return r.data;
   const lines = r.error.issues.map((i) => `  ${i.path.join('.') || '(env)'}: ${i.message}`);
