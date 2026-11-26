@@ -33,6 +33,23 @@ One line each: decision — reason — alternative.
 | 25 | Push is off (quietly) until Firebase config files are added | The app must build and run before a Firebase project exists | Fail at start-up |
 | 26 | Open decisions D1–D6 are built as proposed (My Pending/Overdue/Closed; one department chat per requester; tagged push to tagged person + head; sender sees only their bubble; voice-note lifecycle via R2 rule). D4 (cancel while Open) is **not** built yet | Proposals in the spec; D4 needs your yes | — |
 
+## Owner decisions, 26 Nov 2026 (Review 6)
+
+| # | Question | Decision | Changes needed |
+| --- | --- | --- | --- |
+| D1 | Filter set | **My Pending, Overdue, Sent by me** (Closed dropped) | Replace `closed` filter with `sent_by_me` (open tasks I sent) in API + app |
+| D2 | Department chats | **One chat per sender** | None (as built) |
+| D3 | Push for a tagged department task | **Tagged person only** | Drop the head from tagged-task push recipients |
+| D4 | Sender cancel | **Yes, while still Open** | New `POST /tasks/:id/cancel`, status `Cancelled`, card + push |
+| D5 | Sender sees the AI card | **Always shown** | Show the task card under each sent message (sender's actions: Cancel) |
+| D6 | File retention | **180 days**, then delete the file; task, text and transcript stay | Nightly clean-up job |
+| D7 | Sign-in | **Own passwords** (user ID or phone + password, 5 wrong tries lock 15 min, admin resets) | Replace OTP stub with password sign-in, as in the earlier office-server design |
+| — | File storage | **Office server disk**, not R2 | Disk storage adapter with signed upload/download links served by our API |
+| — | AI provider | **Free tiers (Gemini + Groq), made-up customer data only** | Owner creates two free API keys |
+| — | Push | **Owner creates the Firebase project** and sends `google-services.json`, `GoogleService-Info.plist` and the service-account key | Wire in once received |
+| — | Trial phones | **Android + iPhone** | iPhone needs an Apple Developer account and a Mac for TestFlight |
+| — | Server access | **Public HTTPS address** (static IP or tunnel to the office server) | Domain + certificate before the trial |
+
 ## Contradictions found in the spec (for Review 1)
 
 - §3/§6 say PostgreSQL + Drizzle; owner chose SQL Server (decisions 1–2).
@@ -43,6 +60,5 @@ One line each: decision — reason — alternative.
 ## Proposed (not built)
 
 - Per-device sign-out (stored refresh tokens) if staff share phones.
-- D4: "Cancel" on a sent task while it is still Open.
 - Read/unread per chat (Phase 1 shows open-task counts only).
 - An admin screen for people and departments (today: seed script / SQL).
