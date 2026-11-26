@@ -11,6 +11,7 @@ import { otherUserId } from '../modules/access';
 import { leadChain, manages, teamsLedBy, type OrgSnapshot } from '../modules/org';
 import { acceptDue, halt, shiftOf, start, used } from './clock';
 import { WORKING_DAY, workMs } from './time';
+import { nextTicketNo } from './tickets';
 
 export const ACTIONS = ['accept', 'decline', 'in_progress', 'ask_reassign', 'keep', 'reassign', 'complete', 'verify', 'close', 'reopen',
   'ask_requester', 'block', 'unblock', 'request_reject', 'request_transfer', 'approve_request', 'refuse_request', 'reject', 'transfer',
@@ -278,7 +279,7 @@ async function transfer(c: Ctx, body: unknown, ownerShift: [number, number]): Pr
       overrides: t.overrides as unknown as string, subject: t.subject, module: 'Other', customer_name: t.customer_name, customer_phone: t.customer_phone,
       customer_location: t.customer_location, license_no: t.license_no, details: t.details, ai_status: t.ai_status === 'pending' ? 'pending' : 'done',
       ai_error: null, ai_provider: t.ai_provider, prompt_version: t.prompt_version, closed_at: null,
-      due_at: acceptDue(now, t.priority, holidays), queued_at: now, used_before_transfer: usedMs, transferred_from_id: t.id,
+      due_at: acceptDue(now, t.priority, holidays), queued_at: now, used_before_transfer: usedMs, transferred_from_id: t.id, ticket_no: await nextTicketNo(tx, now),
     }).output('inserted.id').executeTakeFirstOrThrow();
     newTaskId = nt.id;
     await tx.insertInto('task_events').values({ task_id: nt.id, actor_id: c.me.id, type: 'created', payload: JSON.stringify({ transferredFrom: t.id, reason }) }).execute();

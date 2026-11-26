@@ -9,6 +9,7 @@ import { KEY_PATTERN, type StorageProvider } from '../../storage/StorageProvider
 import { type AttachmentRow, messageDto, taskDto } from '../dto';
 import { loadOrg } from '../org';
 import { acceptDue, loadHolidays, shiftOf, start } from '../../workflow/clock';
+import { nextTicketNo } from '../../workflow/tickets';
 import { available } from '../../workflow/engine';
 
 const Priority = z.enum(['Critical', 'High', 'Medium', 'Low']);
@@ -84,7 +85,7 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
         await tx.insertInto('attachments').values({ message_id: message.id, r2_key: k, mime: h.mime, size_bytes: h.sizeBytes, width: null, height: null }).execute();
       }
       const task = await tx.insertInto('tasks').values({
-        message_id: message.id, thread_id: thread.id, priority, queued_at: now, due_at: acceptDue(now, priority, holidays),
+        message_id: message.id, thread_id: thread.id, priority, queued_at: now, due_at: acceptDue(now, priority, holidays), ticket_no: await nextTicketNo(tx, now),
         department_id: thread.department_id, team_id: thread.team_id, tagged_user_id: body.taggedUserId ?? null,
         overrides: JSON.stringify(body.overrides),
         subject: null, module: null, customer_name: null, customer_phone: null, customer_location: null, license_no: null,

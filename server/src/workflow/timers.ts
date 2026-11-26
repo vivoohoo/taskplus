@@ -30,7 +30,7 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
     const thread = await db.selectFrom('threads').selectAll().where('id', '=', t.thread_id).executeTakeFirstOrThrow();
     d.realtime.emit([...threadRooms(thread), ...to.map((u) => `user:${u}`)], 'task.updated', { task: taskDto(fresh), event: { type, payload } });
     const recipients = [...new Set(to)].filter(Boolean);
-    if (recipients.length) await d.jobs().enqueue('notify', { taskId: t.id, kind: 'status', toUserIds: recipients, text }, { jobId: `notify:${t.id}:${type}:${now}` });
+    if (recipients.length) await d.jobs().enqueue('notify', { taskId: t.id, kind: 'status', toUserIds: recipients, text, category: type === 'warned' ? 'deadline' : type === 'escalated' ? 'escalation' : 'update' }, { jobId: `notify:${t.id}:${type}:${now}` });
   };
 
   for (const t of tasks) {

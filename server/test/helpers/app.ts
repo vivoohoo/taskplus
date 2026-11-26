@@ -51,6 +51,7 @@ export async function startTestApp(extraEnv: Record<string, string> = {}) {
   const as = (tok: string) => ({
     get: (url: string) => request(app.server).get(url).set('authorization', `Bearer ${tok}`),
     post: (url: string, body?: object) => request(app.server).post(url).set('authorization', `Bearer ${tok}`).send(body ?? {}),
+    put: (url: string, body?: object) => request(app.server).put(url).set('authorization', `Bearer ${tok}`).send(body ?? {}),
   });
   return { app, db: ctx.db, env, fakes, token, as, ids, stop: async () => { await app.close(); await ctx.stop(); } };
 }

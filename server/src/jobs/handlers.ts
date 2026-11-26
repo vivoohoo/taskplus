@@ -102,7 +102,7 @@ export function jobHandlers(d: JobDeps): JobHandlers {
     await d.jobs().enqueue('notify', { taskId: task.id, kind: 'created' }, { jobId: `notify:${task.id}:created` });
   }
 
-  async function notify({ taskId, kind, toUserIds, text }: { taskId: string; kind: NotifyKind; toUserIds?: string[]; text?: string }) {
+  async function notify({ taskId, kind, toUserIds, text, category }: { taskId: string; kind: NotifyKind; toUserIds?: string[]; text?: string; category?: string }) {
     const task = await loadTask(taskId);
     const [m, thread] = await Promise.all([
       d.db.selectFrom('messages').select(['sender_id', 'body_text', 'transcript']).where('id', '=', task.message_id).executeTakeFirstOrThrow(),
@@ -113,6 +113,13 @@ export function jobHandlers(d: JobDeps): JobHandlers {
     else if (kind === 'created') to = await recipientsOfNew(thread, task, m.sender_id);
     else to = [m.sender_id];
     to = [...new Set(to)].filter(Boolean);
+    // Muted alert kinds (optional kinds only; must-haves always go out).
+    const cat = category ?? (kind === 'created' ? 'new' : 'update');
+    if (!['new', 'accept', 'question'].includes(cat) && to.length) {
+      const muted = await d.db.selectFrom('users').select(['id', 'muted_kinds']).where('id', 'in', to).execute();
+      const off = new Set(muted.filter((u) => (JSON.parse(u.muted_kinds) as string[]).includes(cat)).map((u) => u.id));
+      to = to.filter((id) => !off.has(id));
+    }
     if (!to.length) return;
 
     const sender = await d.db.selectFrom('users').select('name').where('id', '=', m.sender_id).executeTakeFirstOrThrow();
@@ -129,7 +136,15 @@ export function jobHandlers(d: JobDeps): JobHandlers {
   /** D3 (owner, 26 Nov): a tagged department task pushes to the tagged person only; otherwise the whole department. */
   async function recipientsOfNew(thread: Thread, task: Task, senderId: string) {
     if (thread.type === 'direct') return [otherUserId(thread, senderId)!];
-    if (task.tagged_user_id) return task.tagged_user_id === senderId ? [] : [task.tagged_user_id];
+    if (task.tagged_user_id) {
+      // Away: the tagged person's team covers (Ornate's cover rule).
+      const tagged = await d.db.selectFrom('users').select(['away', 'team_id']).where('id', '=', task.tagged_user_id).executeTakeFirst();
+      if (tagged?.away && tagged.team_id) {
+        const team = await d.db.selectFrom('users').select('id').where('team_id', '=', tagged.team_id).where('away', '=', false).where('is_active', '=', true).execute();
+        return team.map((u) => u.id).filter((id) => id !== senderId);
+      }
+      return task.tagged_user_id === senderId ? [] : [task.tagged_user_id];
+    }
     if (thread.team_id) {
       const team = await d.db.selectFrom('users').select('id').where('team_id', '=', thread.team_id).where('is_active', '=', true).execute();
       return team.map((u) => u.id).filter((id) => id !== senderId);

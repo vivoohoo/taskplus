@@ -11,6 +11,7 @@ import { loadMessage, warningsFor, withTasks } from '../messages/service';
 import { loadHolidays } from '../../workflow/clock';
 import { ACTIONS, run, type Action, type Ctx } from '../../workflow/engine';
 import { loadOrg, manages, teamsLedBy } from '../org';
+import { kindOf } from '../people/routes';
 
 const OPEN: TaskStatus[] = ['Open', 'Accepted', 'InProgress'];
 
@@ -35,13 +36,13 @@ export async function taskRoutes(app: FastifyInstance) {
   }
 
   async function changed(task: Task, thread: Thread, senderId: string, event: { type: string; payload: Record<string, unknown> },
-    push?: { kind: string; to?: string[]; text?: string }, viewerId?: string) {
+    push?: { kind: string; to?: string[]; text?: string; category?: string }, viewerId?: string) {
     const fresh = await db.selectFrom('tasks').selectAll().where('id', '=', task.id).executeTakeFirstOrThrow();
     const dto = viewerId ? (await withTasks(db, [await db.selectFrom('messages').selectAll().where('id', '=', fresh.message_id).executeTakeFirstOrThrow()], viewerId))[0]!.task!
       : taskDto(fresh, (await warningsFor(db, [fresh])).get(fresh.id) ?? []);
     const rooms = [...threadRooms(thread), `user:${senderId}`, ...(fresh.assignee_id ? [`user:${fresh.assignee_id}`] : [])];
     app.services.realtime.emit(rooms, 'task.updated', { task: dto, event });
-    if (push) await app.services.jobs.enqueue('notify', { taskId: task.id, kind: push.kind, toUserIds: push.to, text: push.text }, { jobId: `notify:${task.id}:${push.kind}:${Date.now()}` });
+    if (push) await app.services.jobs.enqueue('notify', { taskId: task.id, kind: push.kind, toUserIds: push.to, text: push.text, category: push.category }, { jobId: `notify:${task.id}:${push.kind}:${Date.now()}` });
     return dto;
   }
 
@@ -54,7 +55,7 @@ export async function taskRoutes(app: FastifyInstance) {
     const r = await run(ctx, action, req.body);
     await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: r.type, payload: JSON.stringify(r.payload) }).execute();
     const to = [...new Set(r.push?.to ?? [])].filter((x) => x && x !== me.id);
-    const dto = await changed(task, thread, senderId, { type: r.type, payload: r.payload }, to.length ? { kind: 'status', to, text: r.push!.text } : undefined, me.id);
+    const dto = await changed(task, thread, senderId, { type: r.type, payload: r.payload }, to.length ? { kind: 'status', to, text: r.push!.text, category: kindOf(r.type) } : undefined, me.id);
     if (r.newTaskId) {
       const nt = await db.selectFrom('tasks').select(['id', 'message_id', 'thread_id']).where('id', '=', r.newTaskId).executeTakeFirstOrThrow();
       const nthread = await db.selectFrom('threads').selectAll().where('id', '=', nt.thread_id).executeTakeFirstOrThrow();

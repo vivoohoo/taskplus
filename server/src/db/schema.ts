@@ -27,8 +27,11 @@ export interface Database {
     avatar_url: string | null; is_active: Generated<boolean>; created_at: Stamp; updated_at: Stamp;
     password_hash: Buffer | null; password_salt: Buffer | null; failed_logins: Generated<number>; locked_until: Date | null;
     team_id: Generated<string | null>; reports_to_id: Generated<string | null>;
-    shift: Generated<number>; away: Generated<boolean>;
+    shift: Generated<number>; away: Generated<boolean>; muted_kinds: Generated<string>;
   };
+  ticket_counters: { prefix: string; last_no: number };
+  suggestions: { id: Id; by_id: string; text: string; status: Generated<'New' | 'Seen' | 'Planned' | 'Done' | 'Not planned'>; created_at: Stamp };
+  customers: { id: Id; name: string; active: Generated<boolean> };
   holidays: { day: Date; name: string | null };
   teams: { id: Id; department_id: string; name: string; lead_id: string | null; created_at: Stamp };
   device_tokens: { id: Id; user_id: string; fcm_token: string; platform: 'android' | 'ios'; last_seen_at: Stamp };
@@ -60,6 +63,7 @@ export interface Database {
     escalated_to: Generated<string>; auto_escalated_at: Generated<Date | null>; head_alerted: Generated<boolean>;
     reassign_requested_by: Generated<string | null>; reassign_asked: Generated<string>; declined_by: Generated<string>;
     request: Generated<string | null>; warned: Generated<string>; transferred_from_id: Generated<string | null>;
+    ticket_no: Generated<string | null>;
   };
   task_events: { id: Id; task_id: string; actor_id: string | null; type: TaskEventType; payload: Json<Record<string, unknown>>; created_at: Stamp };
 }

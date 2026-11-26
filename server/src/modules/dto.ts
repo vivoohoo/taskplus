@@ -25,6 +25,7 @@ const parseJson = <T>(s: unknown, d: T): T => { try { return typeof s === 'strin
 
 export const taskDto = (t: Task, warnings: string[] = [], actions: string[] = []) => ({
   id: t.id,
+  ticketNo: t.ticket_no,
   messageId: t.message_id,
   threadId: t.thread_id,
   source: t.source,
