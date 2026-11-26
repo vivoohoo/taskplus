@@ -105,6 +105,24 @@ class Repository {
 
   Future<void> changePassword(String current, String next) => _call(() => _dio.post('/auth/password', data: {'current': current, 'password': next}));
 
+  // ---- people and settings ----
+  Future<void> setAway(bool away) => _call(() => _dio.put('/me/away', data: {'away': away}));
+  Future<void> setShift(int shift) => _call(() => _dio.put('/me/shift', data: {'shift': shift}));
+  Future<Map<String, dynamic>> notificationSettings() => _call(() async => (await _dio.get('/me/notifications')).data as Map<String, dynamic>);
+  Future<void> setMuted(List<String> muted) => _call(() => _dio.put('/me/notifications', data: {'muted': muted}));
+  Future<List<Map<String, dynamic>>> holidays() => _call(() async => ((await _dio.get('/holidays')).data['holidays'] as List).cast<Map<String, dynamic>>());
+  Future<void> addHoliday(String day, String name) => _call(() => _dio.post('/holidays', data: {'day': day, 'name': name}));
+  Future<void> removeHoliday(String day) => _call(() => _dio.delete('/holidays/$day'));
+  Future<Map<String, dynamic>> suggestions() => _call(() async => (await _dio.get('/suggestions')).data as Map<String, dynamic>);
+  Future<void> suggest(String text) => _call(() => _dio.post('/suggestions', data: {'text': text}));
+  Future<void> setSuggestionStatus(String id, String status) => _call(() => _dio.put('/suggestions/$id', data: {'status': status}));
+  Future<List<String>> customers() => _call(() async => [for (final c in (await _dio.get('/customers')).data['customers'] as List) c['name'] as String]);
+  Future<Map<String, dynamic>> history(String taskId) => _call(() async => (await _dio.get('/tasks/$taskId/history')).data as Map<String, dynamic>);
+  Future<List<ChatItem>> searchTasks(String q) => _call(() async => [
+        for (final i in (await _dio.get('/tasks/search', queryParameters: {'q': q})).data['items'] as List) ChatItem.fromJson(i as Map<String, dynamic>)
+      ]);
+  Future<Map<String, dynamic>> team() => _call(() async => (await _dio.get('/analytics/team')).data as Map<String, dynamic>);
+
   Future<void> registerDevice(String token, String platform) =>
       _call(() => _dio.post('/devices', data: {'fcmToken': token, 'platform': platform}));
 }

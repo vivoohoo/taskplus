@@ -101,7 +101,10 @@ Future<Task?> runAction(BuildContext context, WidgetRef ref, Task t, String acti
       if (deptId == null) return null;
       final dept = await ref.read(departmentProvider(deptId).future);
       if (!context.mounted) return null;
-      final who = await _pick(context, 'Reassign to', [for (final m in dept.members.where((m) => m.id != t.assigneeId)) (m.id, m.name)]);
+      final who = await _pick(context, 'Reassign to', [
+        for (final m in dept.members.where((m) => m.id != t.assigneeId))
+          (m.id, '${m.name} · ${m.roleLabel ?? ''} · ${m.active} active${m.full ? ' · full' : ''}${m.away ? ' · away' : ''}'),
+      ]);
       if (who == null) return null;
       return repo.reassign(t.id, who);
   }

@@ -86,7 +86,17 @@ class _ComposerState extends ConsumerState<Composer> {
   Future<void> _pickCommand(SlashCommand c) async {
     final token = _slash!;
     String? value;
-    if (c.freeText) {
+    if (c.name == 'customer') {
+      List<String> list = const [];
+      try { list = await ref.read(repositoryProvider).customers(); } catch (_) {}
+      if (!mounted) return;
+      value = await showModalBottomSheet<String>(context: context, builder: (_) => SafeArea(child: ListView(shrinkWrap: true, children: [
+        ListTile(title: Text(c.label)),
+        for (final v in list) ListTile(title: Text(v), onTap: () => Navigator.pop(context, v)),
+        ListTile(leading: const Icon(Icons.edit), title: const Text('Someone else (type a name or number)'), onTap: () => Navigator.pop(context, '\u0000')),
+      ])));
+      if (value == '\u0000' && mounted) value = await _askText(c.label);
+    } else if (c.freeText) {
       value = await _askText(c.label);
     } else {
       var choices = c.choices ?? const ['Other'];

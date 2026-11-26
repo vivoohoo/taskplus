@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/auth/auth_controller.dart';
+import 'package:go_router/go_router.dart';
+
 import '../../data/providers.dart';
 
 final _profileProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) => ref.watch(repositoryProvider).profile());
@@ -33,6 +35,19 @@ class ProfileScreen extends ConsumerWidget {
           const SizedBox(height: 16),
           if (me['departmentName'] != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.apartment), title: Text(me['departmentName'] as String), subtitle: const Text('Department')),
           if (me['teamName'] != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.groups), title: Text('${me['teamName']} team'), subtitle: const Text('Team')),
+          const Divider(),
+          if ((me['leadsTeams'] as List? ?? const []).isNotEmpty)
+            ListTile(key: const Key('team'), contentPadding: EdgeInsets.zero, leading: const Icon(Icons.insights), title: const Text('Team'),
+                subtitle: const Text('Needs attention, people, on time'), onTap: () => context.push('/team')),
+          _AwayTile(initial: me['away'] == true),
+          _ShiftTile(initial: (me['shift'] as num?)?.toInt() ?? 0),
+          ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.notifications_outlined), title: const Text('Notifications'),
+              onTap: () => context.push('/settings/notifications')),
+          if (me['role'] == 'dept_head' || me['role'] == 'admin')
+            ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.event_busy), title: const Text('Public holidays'),
+                subtitle: const Text('Days the clock skips'), onTap: () => context.push('/settings/holidays')),
+          ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lightbulb_outline), title: const Text('Suggest an improvement'),
+              onTap: () => context.push('/settings/suggestions')),
           const Divider(),
           ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lock_outline), title: const Text('Change password'), onTap: () => _changePassword(context, ref)),
           ListTile(
@@ -71,4 +86,53 @@ class ProfileScreen extends ConsumerWidget {
       ],
     )));
   }
+}
+
+/// Away: new work naming you goes to your team; your lead is told (Ornate).
+class _AwayTile extends ConsumerStatefulWidget {
+  const _AwayTile({required this.initial});
+  final bool initial;
+  @override
+  ConsumerState<_AwayTile> createState() => _AwayTileState();
+}
+
+class _AwayTileState extends ConsumerState<_AwayTile> {
+  late bool _away = widget.initial;
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+        key: const Key('away'),
+        contentPadding: EdgeInsets.zero,
+        secondary: const Icon(Icons.beach_access_outlined),
+        title: const Text('Away'),
+        subtitle: const Text('Tasks tagged to you go to your team'),
+        value: _away,
+        onChanged: (v) async { setState(() => _away = v); await ref.read(repositoryProvider).setAway(v); },
+      );
+}
+
+class _ShiftTile extends ConsumerStatefulWidget {
+  const _ShiftTile({required this.initial});
+  final int initial;
+  @override
+  ConsumerState<_ShiftTile> createState() => _ShiftTileState();
+}
+
+class _ShiftTileState extends ConsumerState<_ShiftTile> {
+  static const labels = ['9 am – 6 pm', '10 am – 7 pm', '11 am – 8 pm'];
+  late int _shift = widget.initial;
+  @override
+  Widget build(BuildContext context) => ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.schedule),
+        title: const Text('Shift'),
+        subtitle: Text('${labels[_shift]}, Mon–Sat'),
+        onTap: () async {
+          final v = await showModalBottomSheet<int>(context: context, builder: (s) => SafeArea(child: ListView(shrinkWrap: true, children: [
+            for (var i = 0; i < labels.length; i++) ListTile(title: Text(labels[i]), trailing: i == _shift ? const Icon(Icons.check) : null, onTap: () => Navigator.pop(s, i)),
+          ])));
+          if (v == null) return;
+          setState(() => _shift = v);
+          await ref.read(repositoryProvider).setShift(v);
+        },
+      );
 }

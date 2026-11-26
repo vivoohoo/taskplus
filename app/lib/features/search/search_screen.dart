@@ -17,6 +17,7 @@ class SearchScreen extends ConsumerStatefulWidget {
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   Timer? _debounce;
   List<SearchResult> _results = const [];
+  List<ChatItem> _tasks = const [];
   String? _error;
   bool _opening = false;
 
@@ -40,7 +41,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Future<void> _run(String q) async {
     try {
       final r = await ref.read(repositoryProvider).search(q);
-      if (mounted) setState(() { _results = r; _error = null; });
+      final ts = q.length >= 2 ? await ref.read(repositoryProvider).searchTasks(q) : <ChatItem>[];
+      if (mounted) setState(() { _results = r; _tasks = ts; _error = null; });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
@@ -72,8 +74,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           if (_error != null) Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
           Expanded(
             child: ListView.builder(
-              itemCount: _results.length,
+              itemCount: _results.length + _tasks.length + (_tasks.isEmpty ? 0 : 1),
               itemBuilder: (_, i) {
+                if (i >= _results.length) {
+                  if (i == _results.length) return const ListTile(dense: true, title: Text('Tasks'));
+                  final t = _tasks[i - _results.length - 1];
+                  return ListTile(
+                    leading: const Icon(Icons.task_alt),
+                    title: Text(t.task?.subject ?? t.message.bodyText ?? 'Task', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${t.task?.ticketNo ?? ''} · ${t.task?.status ?? ''}'),
+                    onTap: () => context.pushReplacement('/chat/${t.message.threadId}'),
+                  );
+                }
                 final r = _results[i];
                 return ListTile(
                   leading: CircleAvatar(child: r.type == 'department' ? const Icon(Icons.apartment) : r.type == 'team' ? const Icon(Icons.groups) : Text(r.name[0])),

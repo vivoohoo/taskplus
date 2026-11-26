@@ -93,6 +93,8 @@ export async function authRoutes(app: FastifyInstance) {
       departmentName: org.departments.find((d) => d.id === me.department_id)?.name ?? null,
       reportingManager: manager ? org.users.find((u) => u.id === manager)?.name ?? null : null,
       leadsTeams: teamsLedBy(org, me.id),
+      away: me.away,
+      shift: me.shift,
     };
   });
 

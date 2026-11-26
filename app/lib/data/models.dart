@@ -50,10 +50,12 @@ class Task {
     this.subject, this.module, this.customerName, this.customerPhone, this.customerLocation, this.licenseNo, this.details,
     this.assigneeId, this.taggedUserId, this.departmentId, this.aiError, this.warnings = const [], this.closedAt,
     this.actions = const [], this.clockState = 'not started', this.usedMs = 0, this.escalationLevel, this.resolution, this.customerInformed,
-    this.reassignRequestedBy, this.requestKind,
+    this.reassignRequestedBy, this.requestKind, this.ticketNo,
   });
   /// The buttons this viewer gets (decided by the server).
   final List<String> actions;
+  /// ORN-SS-2627-00042
+  final String? ticketNo;
   final String clockState;
   final int usedMs;
   final String? escalationLevel, resolution, customerInformed, reassignRequestedBy, requestKind;
@@ -99,6 +101,7 @@ class Task {
         customerInformed: j['customerInformed'] as String?,
         reassignRequestedBy: j['reassignRequestedBy'] as String?,
         requestKind: (j['request'] as Map?)?['kind'] as String?,
+        ticketNo: j['ticketNo'] as String?,
       );
 
   /// Events can arrive late or twice: keep whichever version is newest.
@@ -151,9 +154,14 @@ class SearchResult {
 }
 
 class Member {
-  Member({required this.id, required this.name, required this.role});
+  Member({required this.id, required this.name, required this.role, this.roleLabel, this.active = 0, this.full = false, this.away = false});
   final String id, name, role;
-  factory Member.fromJson(Map<String, dynamic> j) => Member(id: j['id'] as String, name: j['name'] as String, role: j['role'] as String);
+  final String? roleLabel;
+  /// Active tasks; 5 or more is "full" (Ornate's workload limit).
+  final int active;
+  final bool full, away;
+  factory Member.fromJson(Map<String, dynamic> j) => Member(id: j['id'] as String, name: j['name'] as String, role: j['role'] as String,
+      roleLabel: j['roleLabel'] as String?, active: (j['active'] as num?)?.toInt() ?? 0, full: j['full'] == true, away: j['away'] == true);
 }
 
 class DepartmentInfo {

@@ -7,6 +7,7 @@ import '../../data/providers.dart';
 import '../chat/attachments.dart';
 import '../chat/voice_player.dart';
 import 'task_actions.dart';
+import 'task_details.dart';
 
 /// Status names as people read them.
 String statusLabel(String s) => switch (s) {
@@ -81,7 +82,12 @@ class TaskCard extends ConsumerWidget {
             const SizedBox(height: 6),
             Text(m.kind == 'voice' && m.transcript == null ? 'Transcribing…' : 'Structuring…', style: theme.textTheme.labelMedium),
           ] else if (t.subject != null)
-            Text(t.subject!, style: theme.textTheme.titleMedium),
+            InkWell(
+              key: Key('open-details-${t.id}'),
+              onTap: () => showTaskDetails(context, item),
+              child: Text(t.subject!, style: theme.textTheme.titleMedium),
+            ),
+          if (t.ticketNo != null) Text(t.ticketNo!, style: theme.textTheme.labelSmall?.copyWith(color: c.onSurfaceVariant)),
           field('Customer', t.customerName, 'customer_name'),
           field('Phone', t.customerPhone, 'customer_phone', onTap: t.customerPhone == null ? null : () => launchUrl(Uri(scheme: 'tel', path: t.customerPhone))),
           field('Location', t.customerLocation, 'customer_location'),
