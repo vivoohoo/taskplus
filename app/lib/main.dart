@@ -1,0 +1,46 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart';
+
+import 'core/auth/auth_controller.dart';
+import 'core/theme.dart';
+import 'features/auth/login_screen.dart';
+import 'features/home/home_screen.dart';
+
+void main() => runApp(const ProviderScope(child: TaskPlusApp()));
+
+/// Sign-in decides the route: nobody signed in -> /login, otherwise -> /.
+final routerProvider = Provider<GoRouter>((ref) {
+  final refresh = ValueNotifier(0);
+  ref.listen(authProvider, (_, _) => refresh.value++);
+  ref.onDispose(refresh.dispose);
+  return GoRouter(
+    refreshListenable: refresh,
+    routes: [
+      GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: '/loading', builder: (_, _) => const Scaffold(body: Center(child: CircularProgressIndicator()))),
+    ],
+    redirect: (_, state) {
+      final auth = ref.read(authProvider);
+      if (auth.isLoading) return '/loading';
+      final signedIn = auth.value != null;
+      final at = state.matchedLocation;
+      if (!signedIn) return at == '/login' ? null : '/login';
+      return at == '/login' || at == '/loading' ? '/' : null;
+    },
+  );
+});
+
+class TaskPlusApp extends ConsumerWidget {
+  const TaskPlusApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
+        title: 'Task Plus',
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        routerConfig: ref.watch(routerProvider),
+        debugShowCheckedModeBanner: false,
+      );
+}
