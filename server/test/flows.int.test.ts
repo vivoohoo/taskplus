@@ -57,6 +57,15 @@ describe('search and threads', () => {
   });
 });
 
+describe('departments', () => {
+  it('lists members and modules', async () => {
+    const d = (await t.as(tok.riya!).get(`/v1/departments/${await dept('Support')}`)).body;
+    expect(d.modules).toContain('Printing');
+    expect(d.members.map((m: { name: string }) => m.name)).toEqual(['Karan Patel', 'Riya Shah', 'Support Lead']);
+    expect(d.headUserId).toBe(id('supLead'));
+  });
+});
+
 describe('Flow A: text task', () => {
   it('saves at once, is idempotent, and structures in the background', async () => {
     const th = await openDept('riya', 'Development');

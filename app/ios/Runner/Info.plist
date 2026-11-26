@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Task Plus records voice notes and dictates messages.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Task Plus turns your speech into text when you dictate a message.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Task Plus attaches photos you take to a task.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Task Plus attaches photos from your gallery to a task.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

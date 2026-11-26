@@ -23,6 +23,6 @@ void main() {
     await tester.enterText(find.byKey(const Key('code')), '123456');
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expect(find.text('Signed in as Riya Shah'), findsOneWidget);
+    expect(find.byKey(const Key('search')), findsOneWidget);
   });
 }

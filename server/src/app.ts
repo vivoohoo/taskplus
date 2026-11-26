@@ -13,6 +13,7 @@ import { AppError, unauthorized } from './lib/errors';
 import type { Logger } from './lib/logger';
 import { createMetrics, type Metrics } from './lib/metrics';
 import { authRoutes } from './modules/auth/routes';
+import { departmentRoutes } from './modules/departments/routes';
 import { messageRoutes } from './modules/messages/routes';
 import { taskRoutes } from './modules/tasks/routes';
 import { threadRoutes } from './modules/threads/routes';
@@ -97,6 +98,7 @@ export async function buildApp({ env, db, logger, providers, metrics = createMet
     await v1.register(messageRoutes);
     await v1.register(taskRoutes);
     await v1.register(uploadRoutes);
+    await v1.register(departmentRoutes);
   }, { prefix: '/v1' });
   return app;
 }
