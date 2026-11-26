@@ -108,6 +108,17 @@ class $OutboxRowsTable extends OutboxRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _replyToTaskIdMeta = const VerificationMeta(
+    'replyToTaskId',
+  );
+  @override
+  late final GeneratedColumn<String> replyToTaskId = GeneratedColumn<String>(
+    'reply_to_task_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _audioKeyMeta = const VerificationMeta(
     'audioKey',
   );
@@ -184,6 +195,7 @@ class $OutboxRowsTable extends OutboxRows
     attachmentPaths,
     overrides,
     taggedUserId,
+    replyToTaskId,
     audioKey,
     attachmentKeys,
     status,
@@ -275,6 +287,15 @@ class $OutboxRowsTable extends OutboxRows
         ),
       );
     }
+    if (data.containsKey('reply_to_task_id')) {
+      context.handle(
+        _replyToTaskIdMeta,
+        replyToTaskId.isAcceptableOrUnknown(
+          data['reply_to_task_id']!,
+          _replyToTaskIdMeta,
+        ),
+      );
+    }
     if (data.containsKey('audio_key')) {
       context.handle(
         _audioKeyMeta,
@@ -361,6 +382,10 @@ class $OutboxRowsTable extends OutboxRows
         DriftSqlType.string,
         data['${effectivePrefix}tagged_user_id'],
       ),
+      replyToTaskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reply_to_task_id'],
+      ),
       audioKey: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}audio_key'],
@@ -405,6 +430,9 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
   final String overrides;
   final String? taggedUserId;
 
+  /// Set when this is an answer/comment on an existing task (no new task).
+  final String? replyToTaskId;
+
   /// Storage keys of files already uploaded, so a retry doesn't upload again.
   final String? audioKey;
   final String attachmentKeys;
@@ -424,6 +452,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
     required this.attachmentPaths,
     required this.overrides,
     this.taggedUserId,
+    this.replyToTaskId,
     this.audioKey,
     required this.attachmentKeys,
     required this.status,
@@ -450,6 +479,9 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
     map['overrides'] = Variable<String>(overrides);
     if (!nullToAbsent || taggedUserId != null) {
       map['tagged_user_id'] = Variable<String>(taggedUserId);
+    }
+    if (!nullToAbsent || replyToTaskId != null) {
+      map['reply_to_task_id'] = Variable<String>(replyToTaskId);
     }
     if (!nullToAbsent || audioKey != null) {
       map['audio_key'] = Variable<String>(audioKey);
@@ -483,6 +515,9 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
       taggedUserId: taggedUserId == null && nullToAbsent
           ? const Value.absent()
           : Value(taggedUserId),
+      replyToTaskId: replyToTaskId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(replyToTaskId),
       audioKey: audioKey == null && nullToAbsent
           ? const Value.absent()
           : Value(audioKey),
@@ -511,6 +546,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
       attachmentPaths: serializer.fromJson<String>(json['attachmentPaths']),
       overrides: serializer.fromJson<String>(json['overrides']),
       taggedUserId: serializer.fromJson<String?>(json['taggedUserId']),
+      replyToTaskId: serializer.fromJson<String?>(json['replyToTaskId']),
       audioKey: serializer.fromJson<String?>(json['audioKey']),
       attachmentKeys: serializer.fromJson<String>(json['attachmentKeys']),
       status: serializer.fromJson<String>(json['status']),
@@ -532,6 +568,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
       'attachmentPaths': serializer.toJson<String>(attachmentPaths),
       'overrides': serializer.toJson<String>(overrides),
       'taggedUserId': serializer.toJson<String?>(taggedUserId),
+      'replyToTaskId': serializer.toJson<String?>(replyToTaskId),
       'audioKey': serializer.toJson<String?>(audioKey),
       'attachmentKeys': serializer.toJson<String>(attachmentKeys),
       'status': serializer.toJson<String>(status),
@@ -551,6 +588,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
     String? attachmentPaths,
     String? overrides,
     Value<String?> taggedUserId = const Value.absent(),
+    Value<String?> replyToTaskId = const Value.absent(),
     Value<String?> audioKey = const Value.absent(),
     String? attachmentKeys,
     String? status,
@@ -569,6 +607,9 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
     attachmentPaths: attachmentPaths ?? this.attachmentPaths,
     overrides: overrides ?? this.overrides,
     taggedUserId: taggedUserId.present ? taggedUserId.value : this.taggedUserId,
+    replyToTaskId: replyToTaskId.present
+        ? replyToTaskId.value
+        : this.replyToTaskId,
     audioKey: audioKey.present ? audioKey.value : this.audioKey,
     attachmentKeys: attachmentKeys ?? this.attachmentKeys,
     status: status ?? this.status,
@@ -595,6 +636,9 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
       taggedUserId: data.taggedUserId.present
           ? data.taggedUserId.value
           : this.taggedUserId,
+      replyToTaskId: data.replyToTaskId.present
+          ? data.replyToTaskId.value
+          : this.replyToTaskId,
       audioKey: data.audioKey.present ? data.audioKey.value : this.audioKey,
       attachmentKeys: data.attachmentKeys.present
           ? data.attachmentKeys.value
@@ -618,6 +662,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
           ..write('attachmentPaths: $attachmentPaths, ')
           ..write('overrides: $overrides, ')
           ..write('taggedUserId: $taggedUserId, ')
+          ..write('replyToTaskId: $replyToTaskId, ')
           ..write('audioKey: $audioKey, ')
           ..write('attachmentKeys: $attachmentKeys, ')
           ..write('status: $status, ')
@@ -639,6 +684,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
     attachmentPaths,
     overrides,
     taggedUserId,
+    replyToTaskId,
     audioKey,
     attachmentKeys,
     status,
@@ -659,6 +705,7 @@ class OutboxRow extends DataClass implements Insertable<OutboxRow> {
           other.attachmentPaths == this.attachmentPaths &&
           other.overrides == this.overrides &&
           other.taggedUserId == this.taggedUserId &&
+          other.replyToTaskId == this.replyToTaskId &&
           other.audioKey == this.audioKey &&
           other.attachmentKeys == this.attachmentKeys &&
           other.status == this.status &&
@@ -677,6 +724,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
   final Value<String> attachmentPaths;
   final Value<String> overrides;
   final Value<String?> taggedUserId;
+  final Value<String?> replyToTaskId;
   final Value<String?> audioKey;
   final Value<String> attachmentKeys;
   final Value<String> status;
@@ -694,6 +742,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
     this.attachmentPaths = const Value.absent(),
     this.overrides = const Value.absent(),
     this.taggedUserId = const Value.absent(),
+    this.replyToTaskId = const Value.absent(),
     this.audioKey = const Value.absent(),
     this.attachmentKeys = const Value.absent(),
     this.status = const Value.absent(),
@@ -712,6 +761,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
     this.attachmentPaths = const Value.absent(),
     this.overrides = const Value.absent(),
     this.taggedUserId = const Value.absent(),
+    this.replyToTaskId = const Value.absent(),
     this.audioKey = const Value.absent(),
     this.attachmentKeys = const Value.absent(),
     this.status = const Value.absent(),
@@ -733,6 +783,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
     Expression<String>? attachmentPaths,
     Expression<String>? overrides,
     Expression<String>? taggedUserId,
+    Expression<String>? replyToTaskId,
     Expression<String>? audioKey,
     Expression<String>? attachmentKeys,
     Expression<String>? status,
@@ -751,6 +802,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
       if (attachmentPaths != null) 'attachment_paths': attachmentPaths,
       if (overrides != null) 'overrides': overrides,
       if (taggedUserId != null) 'tagged_user_id': taggedUserId,
+      if (replyToTaskId != null) 'reply_to_task_id': replyToTaskId,
       if (audioKey != null) 'audio_key': audioKey,
       if (attachmentKeys != null) 'attachment_keys': attachmentKeys,
       if (status != null) 'status': status,
@@ -771,6 +823,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
     Value<String>? attachmentPaths,
     Value<String>? overrides,
     Value<String?>? taggedUserId,
+    Value<String?>? replyToTaskId,
     Value<String?>? audioKey,
     Value<String>? attachmentKeys,
     Value<String>? status,
@@ -789,6 +842,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
       attachmentPaths: attachmentPaths ?? this.attachmentPaths,
       overrides: overrides ?? this.overrides,
       taggedUserId: taggedUserId ?? this.taggedUserId,
+      replyToTaskId: replyToTaskId ?? this.replyToTaskId,
       audioKey: audioKey ?? this.audioKey,
       attachmentKeys: attachmentKeys ?? this.attachmentKeys,
       status: status ?? this.status,
@@ -829,6 +883,9 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
     if (taggedUserId.present) {
       map['tagged_user_id'] = Variable<String>(taggedUserId.value);
     }
+    if (replyToTaskId.present) {
+      map['reply_to_task_id'] = Variable<String>(replyToTaskId.value);
+    }
     if (audioKey.present) {
       map['audio_key'] = Variable<String>(audioKey.value);
     }
@@ -865,6 +922,7 @@ class OutboxRowsCompanion extends UpdateCompanion<OutboxRow> {
           ..write('attachmentPaths: $attachmentPaths, ')
           ..write('overrides: $overrides, ')
           ..write('taggedUserId: $taggedUserId, ')
+          ..write('replyToTaskId: $replyToTaskId, ')
           ..write('audioKey: $audioKey, ')
           ..write('attachmentKeys: $attachmentKeys, ')
           ..write('status: $status, ')
@@ -898,6 +956,7 @@ typedef $$OutboxRowsTableCreateCompanionBuilder = OutboxRowsCompanion Function({
   Value<String> attachmentPaths,
   Value<String> overrides,
   Value<String?> taggedUserId,
+  Value<String?> replyToTaskId,
   Value<String?> audioKey,
   Value<String> attachmentKeys,
   Value<String> status,
@@ -916,6 +975,7 @@ typedef $$OutboxRowsTableUpdateCompanionBuilder = OutboxRowsCompanion Function({
   Value<String> attachmentPaths,
   Value<String> overrides,
   Value<String?> taggedUserId,
+  Value<String?> replyToTaskId,
   Value<String?> audioKey,
   Value<String> attachmentKeys,
   Value<String> status,
@@ -976,6 +1036,11 @@ class $$OutboxRowsTableFilterComposer
 
   ColumnFilters<String> get taggedUserId => $composableBuilder(
     column: $table.taggedUserId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get replyToTaskId => $composableBuilder(
+    column: $table.replyToTaskId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1064,6 +1129,11 @@ class $$OutboxRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get replyToTaskId => $composableBuilder(
+    column: $table.replyToTaskId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get audioKey => $composableBuilder(
     column: $table.audioKey,
     builder: (column) => ColumnOrderings(column),
@@ -1139,6 +1209,11 @@ class $$OutboxRowsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get replyToTaskId => $composableBuilder(
+    column: $table.replyToTaskId,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get audioKey =>
       $composableBuilder(column: $table.audioKey, builder: (column) => column);
 
@@ -1197,6 +1272,7 @@ class $$OutboxRowsTableTableManager
                 Value<String> attachmentPaths = const Value.absent(),
                 Value<String> overrides = const Value.absent(),
                 Value<String?> taggedUserId = const Value.absent(),
+                Value<String?> replyToTaskId = const Value.absent(),
                 Value<String?> audioKey = const Value.absent(),
                 Value<String> attachmentKeys = const Value.absent(),
                 Value<String> status = const Value.absent(),
@@ -1214,6 +1290,7 @@ class $$OutboxRowsTableTableManager
                 attachmentPaths: attachmentPaths,
                 overrides: overrides,
                 taggedUserId: taggedUserId,
+                replyToTaskId: replyToTaskId,
                 audioKey: audioKey,
                 attachmentKeys: attachmentKeys,
                 status: status,
@@ -1233,6 +1310,7 @@ class $$OutboxRowsTableTableManager
                 Value<String> attachmentPaths = const Value.absent(),
                 Value<String> overrides = const Value.absent(),
                 Value<String?> taggedUserId = const Value.absent(),
+                Value<String?> replyToTaskId = const Value.absent(),
                 Value<String?> audioKey = const Value.absent(),
                 Value<String> attachmentKeys = const Value.absent(),
                 Value<String> status = const Value.absent(),
@@ -1250,6 +1328,7 @@ class $$OutboxRowsTableTableManager
                 attachmentPaths: attachmentPaths,
                 overrides: overrides,
                 taggedUserId: taggedUserId,
+                replyToTaskId: replyToTaskId,
                 audioKey: audioKey,
                 attachmentKeys: attachmentKeys,
                 status: status,

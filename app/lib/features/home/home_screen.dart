@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../core/auth/auth_controller.dart';
 import '../../core/realtime.dart';
 import '../../data/models.dart';
 import '../../data/providers.dart';

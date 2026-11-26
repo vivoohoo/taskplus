@@ -2,42 +2,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/auth/auth_controller.dart';
 import '../../data/models.dart';
 import '../../data/providers.dart';
 import '../chat/attachments.dart';
 import '../chat/voice_player.dart';
-
-/// Who may do what on a card (spec §10.3). Pure, so widget tests can check every role.
-class CardActions {
-  CardActions({required this.accept, required this.reassign, required this.next, this.cancel = false});
-  final bool accept, reassign, cancel;
-  final List<String> next; // InProgress / Closed
-
-  factory CardActions.of(Task t, {required AppUser viewer, required String senderId, required bool directRecipient}) {
-    final mine = t.assigneeId == viewer.id;
-    final inDept = viewer.departmentId != null && viewer.departmentId == t.departmentId;
-    return CardActions(
-      accept: t.status == 'Open' && senderId != viewer.id && (t.departmentId == null ? directRecipient : inDept),
-      reassign: t.status != 'Closed' && senderId != viewer.id && (mine || (viewer.role == 'dept_head' && (inDept || t.departmentId == null))),
-      cancel: senderId == viewer.id && t.status == 'Open', // D4
-      next: !mine ? const [] : switch (t.status) { 'Accepted' => const ['InProgress', 'Closed'], 'InProgress' => const ['Closed'], _ => const [] },
-    );
-  }
-}
+import 'task_actions.dart';
 
 /// Status names as people read them.
 String statusLabel(String s) => switch (s) {
       'InProgress' => 'In progress',
       'WaitingInfo' => 'Waiting for information',
+      'Blocked' => 'Blocked',
+      'Completed' => 'Completed – to verify',
       _ => s,
     };
 
 const priorityColors = {'Critical': Color(0xFF8E0000), 'High': Color(0xFFD93025), 'Medium': Color(0xFFE37400), 'Low': Color(0xFF5F6368)};
 
 class TaskCard extends ConsumerWidget {
-  const TaskCard({super.key, required this.item, required this.directRecipient, this.onTask, this.now});
+  const TaskCard({super.key, required this.item, this.directRecipient = false, this.onTask, this.onAnswer, this.now});
   final ChatItem item;
+  /// The requester answers a question: the chat puts the composer into reply mode for this task.
+  final void Function(Task)? onAnswer;
   /// In a direct chat, whether the viewer is the one it was sent to.
   final bool directRecipient;
   final void Function(Task)? onTask;
@@ -47,11 +33,15 @@ class TaskCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = item.task!;
     final m = item.message;
-    final viewer = ref.watch(authProvider).value;
     final theme = Theme.of(context);
     final c = theme.colorScheme;
     final pending = t.aiStatus == 'pending';
-    final actions = viewer == null ? null : CardActions.of(t, viewer: viewer, senderId: m.senderId, directRecipient: directRecipient);
+    final primary = t.actions.where((a) => actionSpecs[a]?.primary ?? false).toList();
+    final more = t.actions.where((a) => !(actionSpecs[a]?.primary ?? false)).toList();
+    // Show at most three buttons on the card; the rest open from More (as decided for Ornate).
+    final shown = [...primary, ...more].take(primary.isEmpty ? 2 : primary.length.clamp(1, 3)).toList();
+    final rest = t.actions.where((a) => !shown.contains(a)).toList();
+    final canAnswer = t.status == 'WaitingInfo' && onAnswer != null && !t.actions.contains('ask_requester') && t.assigneeId != null;
     final overdue = t.isOverdue(now ?? DateTime.now());
 
     Widget field(String label, String? value, String warnKey, {VoidCallback? onTap}) => value == null || value.isEmpty
@@ -80,6 +70,9 @@ class TaskCard extends ConsumerWidget {
             if (t.module != null) Text(t.module!, style: theme.textTheme.labelMedium?.copyWith(color: c.onSurfaceVariant)),
             if (t.aiStatus == 'needs_review') _Badge('Needs review', const Color(0xFFE37400)),
             if (overdue) _Badge('Overdue', c.error),
+            if (t.escalationLevel != null) _Badge('Escalated', c.error),
+            if (t.reassignRequestedBy != null) _Badge('Reassignment requested', const Color(0xFFE37400)),
+            if (t.requestKind != null) _Badge(t.requestKind == 'reject' ? 'Asked to reject' : 'Asked to transfer', const Color(0xFFE37400)),
             if (t.status != 'Open') Text(statusLabel(t.status), style: theme.textTheme.labelMedium),
           ]),
           const SizedBox(height: 6),
@@ -93,6 +86,7 @@ class TaskCard extends ConsumerWidget {
           field('Phone', t.customerPhone, 'customer_phone', onTap: t.customerPhone == null ? null : () => launchUrl(Uri(scheme: 'tel', path: t.customerPhone))),
           field('Location', t.customerLocation, 'customer_location'),
           field('Licence', t.licenseNo, 'license_no'),
+          if (t.resolution != null) field('Resolution', t.resolution, '_'),
           if (t.taggedUserId != null) _Tagged(t.taggedUserId!, t.departmentId),
           const SizedBox(height: 6),
           if (!pending && t.aiStatus == 'done' && t.details != null) Text(t.details!)
@@ -100,16 +94,24 @@ class TaskCard extends ConsumerWidget {
           else if (m.transcript != null && m.kind == 'voice' && t.aiStatus != 'done') Text(m.transcript!),
           if (m.kind == 'voice') VoicePlayer(audioKey: m.audioKey!, durationS: m.audioDurationS ?? 0, transcript: t.aiStatus == 'done' ? m.transcript : null),
           if (m.attachments.isNotEmpty) AttachmentStrip(attachments: m.attachments),
-          if (actions != null && (actions.accept || actions.reassign || actions.cancel || actions.next.isNotEmpty)) ...[
+          if (shown.isNotEmpty || canAnswer) ...[
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 4, children: [
-              if (actions.accept) FilledButton(onPressed: () => _run(context, ref, (r) => r.accept(t.id)), child: const Text('Accept Task')),
-              if (actions.reassign) OutlinedButton(onPressed: () => _reassign(context, ref, t), child: const Text('Reassign')),
-              if (actions.cancel) OutlinedButton(
-                  style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-                  onPressed: () => _confirmCancel(context, ref, t), child: const Text('Cancel task')),
-              for (final s in actions.next)
-                OutlinedButton(onPressed: () => _run(context, ref, (r) => r.setStatus(t.id, s)), child: Text(s == 'InProgress' ? 'Mark In Progress' : 'Close')),
+              if (canAnswer) FilledButton(key: const Key('answer'), onPressed: () => onAnswer!(t), child: const Text('Answer')),
+              for (final a in shown) _button(context, ref, t, a),
+              if (rest.isNotEmpty) TextButton.icon(
+                key: const Key('more-actions'),
+                icon: const Icon(Icons.more_horiz),
+                label: const Text('More'),
+                onPressed: () async {
+                  final a = await showModalBottomSheet<String>(context: context, builder: (sheet) => SafeArea(child: ListView(shrinkWrap: true, children: [
+                    for (final a in rest) ListTile(
+                      title: Text(actionSpecs[a]?.label ?? a, style: TextStyle(color: (actionSpecs[a]?.danger ?? false) ? Theme.of(sheet).colorScheme.error : null)),
+                      onTap: () => Navigator.pop(sheet, a)),
+                  ])));
+                  if (a != null && context.mounted) await _act(context, ref, t, a);
+                },
+              ),
             ]),
           ],
         ]),
@@ -117,42 +119,25 @@ class TaskCard extends ConsumerWidget {
     );
   }
 
-  Future<void> _run(BuildContext context, WidgetRef ref, Future<Task> Function(dynamic repo) f) async {
+  Widget _button(BuildContext context, WidgetRef ref, Task t, String a) {
+    final spec = actionSpecs[a];
+    final label = Text(spec?.label ?? a);
+    void go() => _act(context, ref, t, a);
+    if (spec?.danger ?? false) return OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error), onPressed: go, child: label);
+    return a == 'accept' || a == 'complete' || a == 'verify' || a == 'close' || a == 'approve_request'
+        ? FilledButton(key: Key('action-$a'), onPressed: go, child: label)
+        : OutlinedButton(key: Key('action-$a'), onPressed: go, child: label);
+  }
+
+  Future<void> _act(BuildContext context, WidgetRef ref, Task t, String a) async {
     try {
-      onTask?.call(await f(ref.read(repositoryProvider)));
+      final updated = await runAction(context, ref, t, a);
+      if (updated == null) return;
+      onTask?.call(updated);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(doneText(a))));
     } catch (e) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
-  }
-
-  Future<void> _confirmCancel(BuildContext context, WidgetRef ref, Task t) async {
-    final ok = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
-      title: const Text('Cancel this task?'),
-      content: const Text('Nobody has accepted it yet. It will show as Cancelled for everyone.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep it')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Cancel task')),
-      ],
-    ));
-    if (ok == true && context.mounted) await _run(context, ref, (r) => r.cancel(t.id));
-  }
-
-  Future<void> _reassign(BuildContext context, WidgetRef ref, Task t) async {
-    final deptId = t.departmentId ?? ref.read(authProvider).value?.departmentId;
-    if (deptId == null) return;
-    final dept = await ref.read(departmentProvider(deptId).future);
-    if (!context.mounted) return;
-    final chosen = await showModalBottomSheet<String>(
-      context: context,
-      builder: (_) => SafeArea(
-        child: ListView(shrinkWrap: true, children: [
-          const ListTile(title: Text('Reassign to')),
-          for (final m in dept.members.where((m) => m.id != t.assigneeId))
-            ListTile(leading: CircleAvatar(child: Text(m.name[0])), title: Text(m.name), onTap: () => Navigator.pop(context, m.id)),
-        ]),
-      ),
-    );
-    if (chosen != null && context.mounted) await _run(context, ref, (r) => r.reassign(t.id, chosen));
   }
 }
 

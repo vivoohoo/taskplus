@@ -82,13 +82,26 @@ class ChatController extends Notifier<ChatState> {
     switch (e.name) {
       case 'message.created':
         final item = ChatItem.fromJson(d);
-        if (item.message.threadId == threadId) state = state.copy(items: ChatMerge.upsert(state.items, item));
+        if (item.message.threadId == threadId) {
+          state = state.copy(items: ChatMerge.upsert(state.items, item));
+          if (item.task != null) _refresh(item.task!.id);
+        }
       case 'task.transcribed':
         state = state.copy(items: ChatMerge.transcript(state.items, d['messageId'] as String, d['transcript'] as String));
       case 'task.structured' || 'task.updated':
         final t = Task.fromJson(d['task'] as Map<String, dynamic>);
-        if (t.threadId == threadId) state = state.copy(items: ChatMerge.task(state.items, t));
+        if (t.threadId == threadId) {
+          state = state.copy(items: ChatMerge.task(state.items, t));
+          _refresh(t.id); // live events go to everyone; re-read for this person's buttons
+        }
     }
+  }
+
+  Future<void> _refresh(String taskId) async {
+    try {
+      final item = await ref.read(repositoryProvider).task(taskId);
+      if (item.task != null) state = state.copy(items: ChatMerge.task(state.items, item.task!));
+    } catch (_) {/* next event or reload will catch up */}
   }
 
   /// After an accept/reassign/status call: show the answer at once (the live event will agree).

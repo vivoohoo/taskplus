@@ -26,14 +26,14 @@ Message message({String sender = 'U-RIYA', String kind = 'text', String? text = 
     createdAt: DateTime.utc(2026, 11, 26, 9));
 
 Task task({String ai = 'done', String status = 'Open', String priority = 'High', String? assignee, String? dept = 'D-DEV',
-        List<String> warnings = const [], DateTime? due, DateTime? updated}) =>
+        List<String> warnings = const [], DateTime? due, DateTime? updated, List<String> actions = const []}) =>
     Task(
       id: 'TK1', messageId: 'M1', threadId: 'T1', priority: priority, status: status, aiStatus: ai,
       dueAt: due ?? DateTime.utc(2099), updatedAt: updated ?? DateTime.utc(2026, 11, 26, 9),
       subject: ai == 'done' ? 'Profit NX Login Failure' : null, module: ai == 'done' ? 'Profit NX' : null,
       customerName: ai == 'done' ? 'Mehta Traders' : null, customerPhone: ai == 'done' ? '9825012345' : null,
       licenseNo: ai == 'done' ? 'PNX-881' : null, details: ai == 'done' ? 'Login fails for all users.' : null,
-      assigneeId: assignee, departmentId: dept, warnings: warnings, aiError: ai == 'needs_review' ? 'AI unavailable' : null,
+      assigneeId: assignee, departmentId: dept, warnings: warnings, aiError: ai == 'needs_review' ? 'AI unavailable' : null, actions: actions,
     );
 
 /// A screen inside the app's providers, with a signed-in user and the Development department.

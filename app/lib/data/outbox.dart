@@ -23,6 +23,8 @@ class OutboxRows extends Table {
   TextColumn get attachmentPaths => text().withDefault(const Constant('[]'))();
   TextColumn get overrides => text().withDefault(const Constant('{}'))();
   TextColumn get taggedUserId => text().nullable()();
+  /// Set when this is an answer/comment on an existing task (no new task).
+  TextColumn get replyToTaskId => text().nullable()();
   /// Storage keys of files already uploaded, so a retry doesn't upload again.
   TextColumn get audioKey => text().nullable()();
   TextColumn get attachmentKeys => text().withDefault(const Constant('[]'))();
@@ -40,13 +42,20 @@ class OutboxRows extends Table {
 class OutboxDb extends _$OutboxDb {
   OutboxDb([QueryExecutor? e]) : super(e ?? driftDatabase(name: 'taskplus_outbox'));
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) await m.addColumn(outboxRows, outboxRows.replyToTaskId);
+        },
+      );
 }
 
 extension on OutboxRow {
   Draft toDraft() => Draft(
         clientMsgId: clientMsgId, threadId: threadId, kind: kind, bodyText: bodyText, audioPath: audioPath,
-        audioDurationS: audioDurationS, taggedUserId: taggedUserId,
+        audioDurationS: audioDurationS, taggedUserId: taggedUserId, replyToTaskId: replyToTaskId,
         attachmentPaths: (jsonDecode(attachmentPaths) as List).cast<String>(),
         overrides: (jsonDecode(overrides) as Map).cast<String, String>(),
       );
@@ -69,7 +78,7 @@ class OutboxSender {
     await db.into(db.outboxRows).insert(OutboxRowsCompanion.insert(
       clientMsgId: d.clientMsgId, threadId: d.threadId, kind: d.kind, bodyText: Value(d.bodyText), audioPath: Value(d.audioPath),
       audioDurationS: Value(d.audioDurationS), attachmentPaths: Value(jsonEncode(d.attachmentPaths)),
-      overrides: Value(jsonEncode(d.overrides)), taggedUserId: Value(d.taggedUserId), createdAt: DateTime.now(),
+      overrides: Value(jsonEncode(d.overrides)), taggedUserId: Value(d.taggedUserId), replyToTaskId: Value(d.replyToTaskId), createdAt: DateTime.now(),
     ));
     unawaited(flush());
   }

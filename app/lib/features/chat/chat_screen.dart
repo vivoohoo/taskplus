@@ -25,6 +25,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scroll = ScrollController();
+  Task? _replyTo;
 
   @override
   void initState() {
@@ -79,26 +80,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
         if (chat.error != null) Padding(padding: const EdgeInsets.all(8), child: Text(chat.error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        Composer(threadId: widget.threadId, departmentId: deptForComposer, onSend: (d) => outbox.add(d)),
+        Composer(threadId: widget.threadId, departmentId: deptForComposer, onSend: (d) => outbox.add(d),
+            replyTo: _replyTo, onCancelReply: () => setState(() => _replyTo = null)),
       ]),
     );
   }
 
   Widget _entry(ChatItem i, AppUser? me) {
     // D5: my own message, with the card the AI made from it underneath.
+    final replyTo = i.message.replyToTaskId == null ? null
+        : ref.read(chatProvider(widget.threadId)).items.where((x) => x.task?.id == i.message.replyToTaskId).firstOrNull?.task?.subject ?? 'a task';
     if (me != null && i.message.senderId == me.id) {
       return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        SentBubble(item: i),
+        SentBubble(item: i, replyTo: replyTo),
         if (i.task != null) Align(
           alignment: Alignment.centerRight,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
-            child: TaskCard(item: i, directRecipient: false, onTask: ref.read(chatProvider(widget.threadId).notifier).applyTask),
+            child: TaskCard(item: i, onTask: ref.read(chatProvider(widget.threadId).notifier).applyTask, onAnswer: (t) => setState(() => _replyTo = t)),
           ),
         ),
       ]);
     }
-    if (i.task == null) return SentBubble(item: i, received: true);
+    if (i.task == null) return SentBubble(item: i, received: true, replyTo: replyTo);
     final thread = widget.thread ?? ref.read(threadsProvider).value?.where((t) => t.id == widget.threadId).firstOrNull;
     final directRecipient = thread?.isDepartment != true;
     return Align(
@@ -113,15 +117,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
 /// My own message: right-aligned, primary colour, with a small status label.
 class SentBubble extends StatelessWidget {
-  const SentBubble({super.key, required this.item, this.received = false});
+  const SentBubble({super.key, required this.item, this.received = false, this.replyTo});
   final ChatItem item;
   final bool received;
+  /// Subject of the task this message answers.
+  final String? replyTo;
 
   @override
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     final m = item.message;
-    final status = statusLabel(item.task?.status ?? 'Open');
+    final status = m.replyToTaskId != null ? 'Reply' : statusLabel(item.task?.status ?? 'Open');
     return Align(
       alignment: received ? Alignment.centerLeft : Alignment.centerRight,
       child: ConstrainedBox(
@@ -132,6 +138,7 @@ class SentBubble extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
           decoration: BoxDecoration(color: received ? c.surfaceContainerHigh : c.primaryContainer, borderRadius: BorderRadius.circular(14)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            if (replyTo != null) Align(alignment: Alignment.centerLeft, child: Text('↪ Re: $replyTo', style: Theme.of(context).textTheme.labelSmall)),
             if (m.bodyText != null) Align(alignment: Alignment.centerLeft, child: Text(m.bodyText!)),
             if (m.kind == 'voice') VoicePlayer(audioKey: m.audioKey!, durationS: m.audioDurationS ?? 0, transcript: m.transcript),
             if (m.attachments.isNotEmpty) AttachmentStrip(attachments: m.attachments),

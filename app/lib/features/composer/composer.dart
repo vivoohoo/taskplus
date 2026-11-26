@@ -22,8 +22,11 @@ const dictationLocales = {'en_IN': 'English', 'hi_IN': 'हिंदी', 'gu_IN
 
 /// Bottom-pinned input: text with / commands and @mentions, dictation, hold-to-record voice notes, attachments.
 class Composer extends ConsumerStatefulWidget {
-  const Composer({super.key, required this.threadId, this.departmentId, required this.onSend});
+  const Composer({super.key, required this.threadId, this.departmentId, required this.onSend, this.replyTo, this.onCancelReply});
   final String threadId;
+  /// Answering a question on this task: the message is a reply, not a new task.
+  final Task? replyTo;
+  final VoidCallback? onCancelReply;
   /// Set in department chats: enables @mention and /module.
   final String? departmentId;
   final void Function(Draft) onSend;
@@ -120,8 +123,9 @@ class _ComposerState extends ConsumerState<Composer> {
     widget.onSend(Draft(
       clientMsgId: const Uuid().v4(), threadId: widget.threadId, kind: kind,
       bodyText: body.isEmpty ? null : body, audioPath: audioPath, audioDurationS: audioSeconds,
-      attachmentPaths: List.of(_files), overrides: Map.of(_overrides), taggedUserId: _tagged?.id,
+      attachmentPaths: List.of(_files), overrides: Map.of(_overrides), taggedUserId: _tagged?.id, replyToTaskId: widget.replyTo?.id,
     ));
+    widget.onCancelReply?.call();
     setState(() { _text.clear(); _files.clear(); _overrides.clear(); _tagged = null; });
   }
 
@@ -223,6 +227,16 @@ class _ComposerState extends ConsumerState<Composer> {
             _Menu(key: const Key('mention-menu'), children: [
               for (final m in members) ListTile(dense: true, title: Text(m.name), onTap: () { _removeToken(_mention!); setState(() => _tagged = m); }),
             ]),
+          if (widget.replyTo != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              child: Align(alignment: Alignment.centerLeft, child: InputChip(
+                key: const Key('replying'),
+                avatar: const Icon(Icons.reply, size: 18),
+                label: Text('Answering: ${widget.replyTo!.subject ?? 'task'}', overflow: TextOverflow.ellipsis),
+                onDeleted: widget.onCancelReply,
+              )),
+            ),
           if (_overrides.isNotEmpty || _tagged != null || _files.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),

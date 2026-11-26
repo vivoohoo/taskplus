@@ -38,9 +38,9 @@ void main() {
       expect(find.text('Profit NX login failing'), findsOneWidget);
     });
 
-    testWidgets('done: priority, module, subject, fields; Accept for a recipient in the department', (tester) async {
+    testWidgets('done: priority, module, subject, fields', (tester) async {
       await pumpAt(tester, wrap(TaskCard(item: ChatItem(message: message(), task: task()), directRecipient: false)));
-      for (final s in ['High', 'Profit NX', 'Profit NX Login Failure', 'Mehta Traders', '9825012345', 'PNX-881', 'Login fails for all users.', 'Accept Task']) {
+      for (final s in ['High', 'Profit NX', 'Profit NX Login Failure', 'Mehta Traders', '9825012345', 'PNX-881', 'Login fails for all users.']) {
         expect(find.text(s), findsOneWidget, reason: s);
       }
       expect(find.text('Location'), findsNothing); // empty fields are hidden
@@ -68,23 +68,32 @@ void main() {
     });
   });
 
-  group('card actions by role', () {
-    test('the sender can cancel only while it is Open (D4)', () {
-      expect(CardActions.of(task(), viewer: me, senderId: 'U-ME', directRecipient: false).cancel, isTrue);
-      expect(CardActions.of(task(status: 'Accepted', assignee: 'U-V'), viewer: me, senderId: 'U-ME', directRecipient: false).cancel, isFalse);
-      expect(CardActions.of(task(), viewer: me, senderId: 'U-RIYA', directRecipient: false).cancel, isFalse);
+  group('card buttons come from the server', () {
+    testWidgets('main actions on the card, the rest under More', (tester) async {
+      await pumpAt(tester, wrap(TaskCard(item: ChatItem(message: message(), task: task(status: 'Accepted', assignee: 'U-ME',
+          actions: ['in_progress', 'complete', 'ask_requester', 'block', 'escalate'])))));
+      expect(find.text('Mark In Progress'), findsOneWidget);
+      expect(find.text('Complete'), findsOneWidget);
+      expect(find.text('Block'), findsNothing);
+      await tester.tap(find.byKey(const Key('more-actions')));
+      await tester.pumpAndSettle();
+      for (final l in ['Ask requester', 'Block', 'Escalate']) {
+        expect(find.text(l), findsOneWidget);
+      }
     });
-    test('recipient can accept an open task; the sender cannot', () {
-      expect(CardActions.of(task(), viewer: me, senderId: 'U-RIYA', directRecipient: false).accept, isTrue);
-      expect(CardActions.of(task(), viewer: me, senderId: 'U-ME', directRecipient: false).accept, isFalse);
-      expect(CardActions.of(task(dept: null), viewer: me, senderId: 'U-RIYA', directRecipient: false).accept, isFalse);
+
+    testWidgets('no actions, no buttons', (tester) async {
+      await pumpAt(tester, wrap(TaskCard(item: ChatItem(message: message(), task: task(status: 'Accepted', assignee: 'U-V')))));
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byKey(const Key('more-actions')), findsNothing);
     });
-    test('head or assignee may reassign; only the assignee moves the status', () {
-      expect(CardActions.of(task(status: 'Accepted', assignee: 'U-V'), viewer: head, senderId: 'U-RIYA', directRecipient: false).reassign, isTrue);
-      expect(CardActions.of(task(status: 'Accepted', assignee: 'U-V'), viewer: me, senderId: 'U-RIYA', directRecipient: false).reassign, isFalse);
-      expect(CardActions.of(task(status: 'Accepted', assignee: 'U-ME'), viewer: me, senderId: 'U-RIYA', directRecipient: false).next, ['InProgress', 'Closed']);
-      expect(CardActions.of(task(status: 'InProgress', assignee: 'U-ME'), viewer: me, senderId: 'U-RIYA', directRecipient: false).next, ['Closed']);
-      expect(CardActions.of(task(status: 'Closed', assignee: 'U-ME'), viewer: me, senderId: 'U-RIYA', directRecipient: false).reassign, isFalse);
+
+    testWidgets('the requester gets Answer when asked a question', (tester) async {
+      Task? answered;
+      await pumpAt(tester, wrap(TaskCard(item: ChatItem(message: message(sender: 'U-ME'), task: task(status: 'WaitingInfo', assignee: 'U-V')),
+          onAnswer: (t) => answered = t)));
+      await tester.tap(find.byKey(const Key('answer')));
+      expect(answered?.id, 'TK1');
     });
   });
 

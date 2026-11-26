@@ -8,6 +8,11 @@ import { loadOrg, roleLabel } from '../org';
 export async function departmentRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
 
+  /** All departments (for Transfer and Ask to transfer). */
+  app.get('/departments', async () => ({
+    departments: (await app.db.selectFrom('departments').select(['id', 'name']).orderBy('name').execute()),
+  }));
+
   app.get('/departments/:id', async (req) => {
     const { id } = parse(z.object({ id: Id }), req.params);
     const d = await app.db.selectFrom('departments').selectAll().where('id', '=', id).executeTakeFirst();

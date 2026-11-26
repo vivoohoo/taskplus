@@ -12,17 +12,20 @@ class Attachment {
 class Message {
   Message({
     required this.id, required this.threadId, required this.senderId, required this.clientMsgId, required this.kind,
-    this.bodyText, this.audioKey, this.audioDurationS, this.transcript, this.attachments = const [], required this.createdAt,
+    this.bodyText, this.audioKey, this.audioDurationS, this.transcript, this.attachments = const [], required this.createdAt, this.replyToTaskId,
   });
   final String id, threadId, senderId, clientMsgId, kind;
   final String? bodyText, audioKey, transcript;
+  /// An answer or comment on an existing task (no task of its own).
+  final String? replyToTaskId;
   final int? audioDurationS;
   final List<Attachment> attachments;
   final DateTime createdAt;
 
   Message copyWith({String? transcript}) => Message(
       id: id, threadId: threadId, senderId: senderId, clientMsgId: clientMsgId, kind: kind, bodyText: bodyText,
-      audioKey: audioKey, audioDurationS: audioDurationS, transcript: transcript ?? this.transcript, attachments: attachments, createdAt: createdAt);
+      audioKey: audioKey, audioDurationS: audioDurationS, transcript: transcript ?? this.transcript, attachments: attachments, createdAt: createdAt,
+      replyToTaskId: replyToTaskId);
 
   factory Message.fromJson(Map<String, dynamic> j) => Message(
         id: j['id'] as String,
@@ -36,24 +39,34 @@ class Message {
         transcript: j['transcript'] as String?,
         attachments: [for (final a in (j['attachments'] as List? ?? [])) Attachment.fromJson(a as Map<String, dynamic>)],
         createdAt: DateTime.parse(j['createdAt'] as String),
+        replyToTaskId: j['replyToTaskId'] as String?,
       );
 }
 
 class Task {
   Task({
     required this.id, required this.messageId, required this.threadId, required this.priority, required this.status,
-    required this.aiStatus, required this.dueAt, required this.updatedAt,
+    required this.aiStatus, this.dueAt, required this.updatedAt,
     this.subject, this.module, this.customerName, this.customerPhone, this.customerLocation, this.licenseNo, this.details,
     this.assigneeId, this.taggedUserId, this.departmentId, this.aiError, this.warnings = const [], this.closedAt,
+    this.actions = const [], this.clockState = 'not started', this.usedMs = 0, this.escalationLevel, this.resolution, this.customerInformed,
+    this.reassignRequestedBy, this.requestKind,
   });
+  /// The buttons this viewer gets (decided by the server).
+  final List<String> actions;
+  final String clockState;
+  final int usedMs;
+  final String? escalationLevel, resolution, customerInformed, reassignRequestedBy, requestKind;
   final String id, messageId, threadId, priority, status, aiStatus;
   final String? subject, module, customerName, customerPhone, customerLocation, licenseNo, details;
   final String? assigneeId, taggedUserId, departmentId, aiError;
   final List<String> warnings;
-  final DateTime dueAt, updatedAt;
+  /// Null while the clock is paused (waiting or blocked).
+  final DateTime? dueAt;
+  final DateTime updatedAt;
   final DateTime? closedAt;
 
-  bool isOverdue(DateTime now) => status != 'Closed' && dueAt.isBefore(now);
+  bool isOverdue(DateTime now) => !const ['Closed', 'Completed', 'Verified', 'Rejected', 'Transferred', 'Cancelled'].contains(status) && dueAt != null && dueAt!.isBefore(now);
   bool hasWarning(String field) => warnings.any((w) => w.startsWith('$field:'));
 
   factory Task.fromJson(Map<String, dynamic> j) => Task(
@@ -63,7 +76,7 @@ class Task {
         priority: j['priority'] as String,
         status: j['status'] as String,
         aiStatus: j['aiStatus'] as String,
-        dueAt: DateTime.parse(j['dueAt'] as String),
+        dueAt: j['dueAt'] == null ? null : DateTime.parse(j['dueAt'] as String),
         updatedAt: DateTime.parse(j['updatedAt'] as String),
         subject: j['subject'] as String?,
         module: j['module'] as String?,
@@ -78,10 +91,18 @@ class Task {
         aiError: j['aiError'] as String?,
         warnings: [for (final w in (j['warnings'] as List? ?? [])) w as String],
         closedAt: j['closedAt'] == null ? null : DateTime.parse(j['closedAt'] as String),
+        actions: [for (final a in (j['actions'] as List? ?? [])) a as String],
+        clockState: (j['clock'] as Map?)?['state'] as String? ?? 'not started',
+        usedMs: ((j['clock'] as Map?)?['usedMs'] as num?)?.toInt() ?? 0,
+        escalationLevel: j['escalationLevel'] as String?,
+        resolution: j['resolution'] as String?,
+        customerInformed: j['customerInformed'] as String?,
+        reassignRequestedBy: j['reassignRequestedBy'] as String?,
+        requestKind: (j['request'] as Map?)?['kind'] as String?,
       );
 
   /// Events can arrive late or twice: keep whichever version is newest.
-  static Task newest(Task? a, Task b) => a == null || !b.updatedAt.isBefore(a.updatedAt) ? b : a;
+  static Task newest(Task? a, Task b) => a == null || !b.updatedAt.isBefore(a.updatedAt) ? (b.actions.isEmpty && a != null && !b.updatedAt.isAfter(a.updatedAt) ? a : b) : a;
 }
 
 class ChatItem {
@@ -153,9 +174,9 @@ class DepartmentInfo {
 /// What the sender typed or recorded, before the server knows about it.
 class Draft {
   Draft({required this.clientMsgId, required this.threadId, required this.kind, this.bodyText, this.audioPath,
-      this.audioDurationS, this.attachmentPaths = const [], this.overrides = const {}, this.taggedUserId});
+      this.audioDurationS, this.attachmentPaths = const [], this.overrides = const {}, this.taggedUserId, this.replyToTaskId});
   final String clientMsgId, threadId, kind;
-  final String? bodyText, audioPath, taggedUserId;
+  final String? bodyText, audioPath, taggedUserId, replyToTaskId;
   final int? audioDurationS;
   final List<String> attachmentPaths;
   final Map<String, String> overrides;

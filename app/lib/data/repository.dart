@@ -51,6 +51,7 @@ class Repository {
           if (attachmentKeys.isNotEmpty) 'attachmentKeys': attachmentKeys,
           if (d.overrides.isNotEmpty) 'overrides': d.overrides,
           'taggedUserId': ?d.taggedUserId,
+          'replyToTaskId': ?d.replyToTaskId,
         });
         return ChatItem.fromJson(r.data as Map<String, dynamic>);
       });
@@ -69,6 +70,17 @@ class Repository {
 
   Future<Task> accept(String taskId) => _task(() => _dio.post('/tasks/$taskId/accept'));
   Future<Task> reassign(String taskId, String assigneeId) => _task(() => _dio.post('/tasks/$taskId/reassign', data: {'assigneeId': assigneeId}));
+  /// Any workflow action; `body` carries its reason, question, resolution, department, level or priority.
+  Future<Task> action(String taskId, String action, [Map<String, dynamic> body = const {}]) =>
+      _task(() => _dio.post('/tasks/$taskId/actions/$action', data: body));
+
+  /// One task with this person's buttons (re-read after a live event).
+  Future<ChatItem> task(String taskId) => _call(() async => ChatItem.fromJson((await _dio.get('/tasks/$taskId')).data as Map<String, dynamic>));
+
+  Future<List<({String id, String name})>> departments() => _call(() async => [
+        for (final d in (await _dio.get('/departments')).data['departments'] as List) (id: d['id'] as String, name: d['name'] as String)
+      ]);
+
   Future<Task> cancel(String taskId) => _task(() => _dio.post('/tasks/$taskId/cancel'));
   Future<Task> setStatus(String taskId, String status) => _task(() => _dio.post('/tasks/$taskId/status', data: {'status': status}));
   Future<Task> _task(Future<Response> Function() f) => _call(() async => Task.fromJson((await f()).data['task'] as Map<String, dynamic>));
