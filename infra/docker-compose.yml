@@ -1,0 +1,38 @@
+# Local stack: SQL Server, Redis and the API.  docker compose -f infra/docker-compose.yml up
+# Then (from server/):  npm run migrate && npm run seed
+name: taskplus
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Change_me_123}
+      MSSQL_PID: Developer
+    ports: ["1433:1433"]
+    volumes: [mssql-data:/var/opt/mssql]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  server:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run migrate && npm run seed && npm start"
+    env_file: ../server/.env
+    environment:
+      DATABASE_URL: mssql://sa:${MSSQL_SA_PASSWORD:-Change_me_123}@mssql:1433/taskplus?trustServerCertificate=true
+      REDIS_URL: redis://redis:6379
+    volumes: ["../server:/app", "server-node-modules:/app/node_modules"]
+    ports: ["8080:8080"]
+    depends_on:
+      mssql: { condition: service_healthy }
+      redis: { condition: service_started }
+
+volumes:
+  mssql-data:
+  server-node-modules:

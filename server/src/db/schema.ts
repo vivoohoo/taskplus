@@ -1,0 +1,53 @@
+// Table types for Kysely. The tables themselves are created by db/migrations (SQL Server).
+import type { ColumnType, Generated, Insertable, Selectable, Updateable } from 'kysely';
+
+type Id = Generated<string>; // uniqueidentifier, NEWSEQUENTIALID()
+type Stamp = ColumnType<Date, Date | undefined, Date>; // datetimeoffset, defaults to now
+type Json<T> = ColumnType<T, string, string>; // stored as nvarchar(max) JSON text
+
+export type Role = 'staff' | 'dept_head' | 'admin';
+export type Priority = 'High' | 'Medium' | 'Low';
+export type TaskStatus = 'Open' | 'Accepted' | 'InProgress' | 'Closed';
+export type AiStatus = 'pending' | 'done' | 'needs_review';
+export type MessageKind = 'text' | 'voice' | 'attachment';
+export type TaskEventType = 'created' | 'structured' | 'accepted' | 'reassigned' | 'status_changed' | 'closed';
+
+export interface Overrides { priority?: Priority; customer?: string; license?: string; module?: string }
+
+export interface Database {
+  departments: { id: Id; name: string; head_user_id: string | null; modules: Json<string[]>; created_at: Stamp; updated_at: Stamp };
+  users: {
+    id: Id; name: string; phone: string; email: string | null; role: Role; department_id: string | null;
+    avatar_url: string | null; is_active: Generated<boolean>; created_at: Stamp; updated_at: Stamp;
+  };
+  device_tokens: { id: Id; user_id: string; fcm_token: string; platform: 'android' | 'ios'; last_seen_at: Stamp };
+  threads: {
+    id: Id; type: 'direct' | 'department';
+    user_a_id: string | null; user_b_id: string | null;       // direct: sorted pair
+    requester_id: string | null; department_id: string | null; // department
+    last_message_at: Date | null; created_at: Stamp; updated_at: Stamp;
+  };
+  messages: {
+    id: Id; thread_id: string; sender_id: string; client_msg_id: string; kind: MessageKind;
+    body_text: string | null; audio_key: string | null; audio_duration_s: number | null;
+    transcript: string | null; transcript_lang: string | null; created_at: Stamp;
+  };
+  attachments: { id: Id; message_id: string; r2_key: string; mime: string; size_bytes: number; width: number | null; height: number | null };
+  tasks: {
+    id: Id; message_id: string; thread_id: string; source: Generated<'app' | 'email' | 'whatsapp'>;
+    subject: string | null; module: string | null; customer_name: string | null; customer_phone: string | null;
+    customer_location: string | null; license_no: string | null; priority: Priority; details: string | null;
+    status: Generated<TaskStatus>; assignee_id: string | null; tagged_user_id: string | null; department_id: string | null;
+    ai_status: Generated<AiStatus>; ai_error: string | null; ai_provider: string | null; prompt_version: string | null;
+    overrides: Json<Overrides>; due_at: Date; closed_at: Date | null; created_at: Stamp; updated_at: Stamp;
+  };
+  task_events: { id: Id; task_id: string; actor_id: string | null; type: TaskEventType; payload: Json<Record<string, unknown>>; created_at: Stamp };
+}
+
+export type User = Selectable<Database['users']>;
+export type NewUser = Insertable<Database['users']>;
+export type UserUpdate = Updateable<Database['users']>;
+export type Department = Selectable<Database['departments']>;
+export type Thread = Selectable<Database['threads']>;
+export type Message = Selectable<Database['messages']>;
+export type Task = Selectable<Database['tasks']>;
