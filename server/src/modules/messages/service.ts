@@ -8,7 +8,7 @@ import { Id, parse } from '../../lib/validate';
 import { KEY_PATTERN, type StorageProvider } from '../../storage/StorageProvider';
 import { type AttachmentRow, messageDto, taskDto } from '../dto';
 
-const Priority = z.enum(['High', 'Medium', 'Low']);
+const Priority = z.enum(['Critical', 'High', 'Medium', 'Low']);
 export const Overrides = z.object({
   priority: Priority.optional(),
   customer: z.string().trim().min(1).max(150).optional(),
@@ -32,7 +32,7 @@ export const NewMessage = z.object({
 });
 export type NewMessage = z.infer<typeof NewMessage>;
 
-export const slaHours = (env: Env, p: Priority) => ({ High: env.SLA_HOURS_HIGH, Medium: env.SLA_HOURS_MEDIUM, Low: env.SLA_HOURS_LOW })[p];
+export const slaHours = (env: Env, p: Priority) => ({ Critical: env.SLA_HOURS_CRITICAL, High: env.SLA_HOURS_HIGH, Medium: env.SLA_HOURS_MEDIUM, Low: env.SLA_HOURS_LOW })[p];
 export const dueAt = (env: Env, p: Priority, from = new Date()) => new Date(from.getTime() + slaHours(env, p) * 3600_000);
 
 const isDuplicate = (e: unknown) => [2601, 2627].includes((e as { number?: number }).number ?? 0);

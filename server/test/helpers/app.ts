@@ -8,8 +8,11 @@ import { AiUnavailableError, type ExtractInput } from '../../src/ai/llm/LlmProvi
 import type { SttProvider } from '../../src/ai/stt/SttProvider';
 import { createLogger } from '../../src/lib/logger';
 import { MemoryPush } from '../../src/push/PushProvider';
-import { MemoryStorage } from '../../src/storage/StorageProvider';
-import { startTestDb } from './db';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { diskStorage } from '../../src/container';
+import { startTestDb, TEST_PASSWORD } from './db';
 
 export class FakeLlm implements LlmGateway {
   calls: ExtractInput[] = [];
@@ -34,14 +37,14 @@ export class FakeStt implements SttProvider {
 
 export async function startTestApp(extraEnv: Record<string, string> = {}) {
   const ctx = await startTestDb();
-  const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL: ctx.url, JWT_SECRET: 't'.repeat(40), DEV_FIXED_OTP: '123456', JOB_MAX_ATTEMPTS: '2', ...extraEnv });
-  const fakes = { storage: new MemoryStorage('http://test'), llm: new FakeLlm(), stt: new FakeStt(), push: new MemoryPush() };
+  const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL: ctx.url, JWT_SECRET: 't'.repeat(40), JOB_MAX_ATTEMPTS: '2', ...extraEnv });
+  const fakes = { storage: diskStorage({ ...env, FILES_DIR: mkdtempSync(join(tmpdir(), 'taskplus-files-')) }), llm: new FakeLlm(), stt: new FakeStt(), push: new MemoryPush() };
   const app = await buildApp({ env, db: ctx.db, logger: createLogger('error'), providers: fakes as Providers, backoffUnitMs: 5 });
   await app.ready();
 
   const ids = new Map<string, string>();
   const token = async (phone: string) => {
-    const r = await request(app.server).post('/v1/auth/otp/verify').send({ phone, code: '123456' });
+    const r = await request(app.server).post('/v1/auth/login').send({ phone, password: TEST_PASSWORD });
     ids.set(phone, r.body.user.id);
     return r.body.accessToken as string;
   };

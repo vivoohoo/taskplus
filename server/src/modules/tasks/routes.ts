@@ -11,7 +11,7 @@ import { warningsFor, withTasks } from '../messages/service';
 
 const OPEN: TaskStatus[] = ['Open', 'Accepted', 'InProgress'];
 /** Allowed moves for the assignee. */
-const NEXT: Record<TaskStatus, TaskStatus[]> = { Open: [], Accepted: ['InProgress', 'Closed'], InProgress: ['Closed'], Closed: [] };
+const NEXT: Partial<Record<TaskStatus, TaskStatus[]>> = { Accepted: ['InProgress', 'Closed'], InProgress: ['Closed'] };
 
 export async function taskRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
@@ -86,7 +86,7 @@ export async function taskRoutes(app: FastifyInstance) {
     const me = await currentUser(db, req.userId);
     const { task, thread, senderId } = await load(me, id);
     if (task.assignee_id !== me.id) throw forbidden('Only the assignee can change the status.');
-    if (!NEXT[task.status].includes(status)) throw badRequest(`Can't go from ${task.status} to ${status}.`);
+    if (!(NEXT[task.status] ?? []).includes(status)) throw badRequest(`Can't go from ${task.status} to ${status}.`);
     const now = new Date();
     const r = await db.updateTable('tasks').set({ status, closed_at: status === 'Closed' ? now : null, updated_at: now })
       .where('id', '=', task.id).where('status', '=', task.status).executeTakeFirst();
@@ -97,17 +97,35 @@ export async function taskRoutes(app: FastifyInstance) {
     return { task: await changed(task, thread, senderId, { type, payload }, { kind: 'status' }) };
   });
 
+  // D4: the sender may cancel while nobody has accepted it yet.
+  app.post('/tasks/:id/cancel', async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const me = await currentUser(db, req.userId);
+    const { task, thread, senderId } = await load(me, id);
+    if (senderId !== me.id) throw forbidden('Only the person who sent it can cancel it.');
+    const r = await db.updateTable('tasks').set({ status: 'Cancelled', closed_at: new Date(), updated_at: new Date() })
+      .where('id', '=', task.id).where('status', '=', 'Open').executeTakeFirst();
+    if (!Number(r.numUpdatedRows)) throw conflict('CHANGED', 'It has already been accepted, so it can no longer be cancelled.');
+    await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'cancelled', payload: '{}' }).execute();
+    const notify = task.assignee_id ?? task.tagged_user_id;
+    return { task: await changed(task, thread, senderId, { type: 'cancelled', payload: {} }, notify ? { kind: 'status', to: [notify] } : undefined) };
+  });
+
   // Flow D. my_pending: open and mine, or unclaimed and sent to me / my department. overdue: that, past due. closed: mine, newest first.
   app.get('/tasks', async (req) => {
     const { filter, cursor, limit } = parse(z.object({
-      filter: z.enum(['my_pending', 'overdue', 'closed']),
+      filter: z.enum(['my_pending', 'overdue', 'sent_by_me', 'closed']),
       cursor: z.coerce.number().int().min(0).default(0),
       limit: z.coerce.number().int().min(1).max(100).default(30),
     }), req.query);
     const me = await currentUser(db, req.userId);
     let q = db.selectFrom('tasks').innerJoin('messages', 'messages.id', 'tasks.message_id').innerJoin('threads', 'threads.id', 'tasks.thread_id')
       .select('tasks.message_id');
-    if (filter === 'closed') {
+    if (filter === 'sent_by_me') {
+      // D1: still-open tasks I sent, soonest due first.
+      q = q.where('messages.sender_id', '=', me.id).where('tasks.status', 'not in', ['Closed', 'Rejected', 'Transferred', 'Cancelled', 'Verified'])
+        .orderBy('tasks.due_at', 'asc');
+    } else if (filter === 'closed') {
       q = q.where('tasks.status', '=', 'Closed').where((eb) => eb.or([eb('tasks.assignee_id', '=', me.id), eb('messages.sender_id', '=', me.id)]))
         .orderBy('tasks.closed_at', 'desc');
     } else {
@@ -139,6 +157,8 @@ export async function taskRoutes(app: FastifyInstance) {
         ${me.department_id ? sql`OR t.department_id = ${me.department_id}` : sql``})))`;
     const r = await sql<{ pending: number; overdue: number }>`SELECT COUNT(*) AS pending,
       SUM(CASE WHEN t.due_at < SYSDATETIMEOFFSET() THEN 1 ELSE 0 END) AS overdue ${base}`.execute(db);
-    return { myPending: Number(r.rows[0]?.pending ?? 0), overdue: Number(r.rows[0]?.overdue ?? 0) };
+    const sent = await sql<{ n: number }>`SELECT COUNT(*) AS n FROM tasks t JOIN messages m ON m.id = t.message_id
+      WHERE m.sender_id = ${me.id} AND t.status NOT IN ('Closed', 'Rejected', 'Transferred', 'Cancelled', 'Verified')`.execute(db);
+    return { myPending: Number(r.rows[0]?.pending ?? 0), overdue: Number(r.rows[0]?.overdue ?? 0), sentByMe: Number(sent.rows[0]?.n ?? 0) };
   });
 }

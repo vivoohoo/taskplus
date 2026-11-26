@@ -29,6 +29,10 @@ const Env = z.object({
   GROQ_STT_MODEL: z.string().default('whisper-large-v3-turbo'),
   OLLAMA_URL: z.string().default('http://localhost:11434'),
   OLLAMA_MODEL: z.string().default('qwen2.5:7b-instruct'),
+  // Files: on this server's disk (decided), or Cloudflare R2
+  STORAGE: z.enum(['disk', 'r2']).default('disk'),
+  FILES_DIR: z.string().default('./files'),
+  FILE_RETENTION_DAYS: z.coerce.number().int().min(1).default(180),
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
@@ -37,18 +41,19 @@ const Env = z.object({
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  DEV_FIXED_OTP: z.string().regex(/^\d{6}$/).optional(),
+  SEED_PASSWORD: z.string().optional(),
 
   // Business rules
-  DEFAULT_PRIORITY: z.enum(['High', 'Medium', 'Low']).default('Medium'),
+  DEFAULT_PRIORITY: z.enum(['Critical', 'High', 'Medium', 'Low']).default('Medium'),
+  SLA_HOURS_CRITICAL: z.coerce.number().positive().default(2),
   SLA_HOURS_HIGH: z.coerce.number().positive().default(4),
   SLA_HOURS_MEDIUM: z.coerce.number().positive().default(24),
   SLA_HOURS_LOW: z.coerce.number().positive().default(72),
   LICENSE_REGEX: z.string().optional(),
   TRUST_PROXY: bool.default(false),
 }).superRefine((e, ctx) => {
-  if (e.NODE_ENV === 'production' && e.DEV_FIXED_OTP)
-    ctx.addIssue({ code: 'custom', path: ['DEV_FIXED_OTP'], message: 'must not be set in production' });
+  if (e.NODE_ENV === 'production' && e.SEED_PASSWORD)
+    ctx.addIssue({ code: 'custom', path: ['SEED_PASSWORD'], message: 'must not be set in production (set passwords, then remove it)' });
 });
 
 export type Env = z.infer<typeof Env>;

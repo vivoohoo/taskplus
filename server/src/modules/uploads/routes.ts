@@ -1,9 +1,11 @@
-// Signed upload and download links. The file itself never passes through the API (except the dev-only memory store).
+// Signed upload and download links. With STORAGE=disk the files live on this server's disk and pass through these routes;
+// with R2 they go straight to R2.
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { Id, parse } from '../../lib/validate';
-import { ALLOWED_MIME, KEY_PATTERN, MAX_UPLOAD_BYTES, MemoryStorage, storageKey } from '../../storage/StorageProvider';
+import { DiskStorage } from '../../storage/disk';
+import { ALLOWED_MIME, KEY_PATTERN, MAX_UPLOAD_BYTES, storageKey } from '../../storage/StorageProvider';
 import { canSeeThread, currentUser, threadFor } from '../access';
 
 export async function uploadRoutes(app: FastifyInstance) {
@@ -36,21 +38,30 @@ export async function uploadRoutes(app: FastifyInstance) {
     return app.services.storage.presignDownload(key, app.env.PRESIGN_TTL_SECONDS);
   });
 
-  // Dev only, when no R2 keys are set: the memory store stands in for R2's signed URLs.
+  // Files on this server's disk: the signed link is the permission (no sign-in header on these two routes).
   const store = app.services.storage;
-  if (store instanceof MemoryStorage && app.env.NODE_ENV !== 'production') {
+  if (store instanceof DiskStorage) {
     app.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_BYTES }, (_req, body, done) => done(null, body));
-    app.put('/dev-upload/*', async (req, reply) => {
+    const signed = (req: { params: unknown; query: unknown }) => {
       const key = (req.params as { '*': string })['*'];
-      if (!KEY_PATTERN.test(key)) throw badRequest('Bad key.');
-      store.put(key, req.body as Buffer, String(req.headers['content-type'] ?? 'application/octet-stream'));
+      const q = req.query as { exp?: string; sig?: string };
+      if (!KEY_PATTERN.test(key) || !q.exp || !q.sig) throw forbidden('This link is not valid.');
+      return { key, exp: q.exp, sig: q.sig };
+    };
+    app.put('/files/raw/*', async (req, reply) => {
+      const { key, exp, sig } = signed(req);
+      const body = req.body as Buffer;
+      const mime = String(req.headers['content-type'] ?? '').split(';')[0]!.trim();
+      if (!Buffer.isBuffer(body) || !store.verify('PUT', key, exp, sig, mime, body.length)) throw forbidden('This upload link has expired or does not match the file.');
+      await store.put(key, body, mime);
       return reply.code(200).send();
     });
-    app.get('/dev-upload/*', async (req, reply) => {
-      const key = (req.params as { '*': string })['*'];
-      const f = store.files.get(key);
-      if (!f) throw notFound();
-      return reply.type(f.mime).send(f.body);
+    app.get('/files/raw/*', async (req, reply) => {
+      const { key, exp, sig } = signed(req);
+      if (!store.verify('GET', key, exp, sig)) throw forbidden('This link has expired.');
+      const h = await store.head(key);
+      if (!h) throw notFound('This file is no longer kept (files are deleted after the retention period).');
+      return reply.type(h.mime).header('cache-control', 'private, max-age=300').send(await store.get(key));
     });
   }
 }

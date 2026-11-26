@@ -4,9 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { loadEnv } from '../config/env';
 import { createDb, type Db } from './client';
 import * as m0001 from './migrations/0001_init';
+import * as m0002 from './migrations/0002_passwords_statuses';
 
 /** Listed here, in order. Add each new migration file to this list. */
-const MIGRATIONS: Record<string, Migration> = { '0001_init': m0001 };
+const MIGRATIONS: Record<string, Migration> = { '0001_init': m0001, '0002_passwords_statuses': m0002 };
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };
 
 export async function ensureDatabase(url: string) {

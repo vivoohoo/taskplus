@@ -11,7 +11,10 @@ import type { Logger } from './lib/logger';
 import type { Metrics } from './lib/metrics';
 import { FcmPush, MemoryPush, type PushProvider } from './push/PushProvider';
 import { R2Storage } from './storage/r2';
-import { MemoryStorage, type StorageProvider } from './storage/StorageProvider';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { DiskStorage } from './storage/disk';
+import type { StorageProvider } from './storage/StorageProvider';
 
 export interface Providers { storage: StorageProvider; llm: LlmGateway; stt: SttProvider; push: PushProvider }
 
@@ -38,12 +41,11 @@ export function createProviders(env: Env, log: Logger, metrics: Metrics): Provid
   const warn = (what: string) => log.warn(`${what} (fine for development; required in production)`);
 
   let storage: StorageProvider;
-  if (env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) {
-    storage = new R2Storage(env.R2_ACCOUNT_ID, env.R2_ACCESS_KEY_ID, env.R2_SECRET_ACCESS_KEY, env.R2_BUCKET);
+  if (env.STORAGE === 'r2') {
+    storage = new R2Storage(requireKey(env, 'R2_ACCOUNT_ID'), requireKey(env, 'R2_ACCESS_KEY_ID'), requireKey(env, 'R2_SECRET_ACCESS_KEY'), env.R2_BUCKET);
   } else {
-    if (prod) throw new Error('R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are required in production.');
-    warn('No R2 keys: files are kept in memory and served from /v1/dev-upload');
-    storage = new MemoryStorage(`http://localhost:${env.PORT}`);
+    // Links are relative (/v1/files/raw/...): the phone adds whatever server address it is using (the tunnel address changes).
+    storage = diskStorage(env);
   }
 
   let push: PushProvider;
@@ -67,3 +69,7 @@ export function createProviders(env: Env, log: Logger, metrics: Metrics): Provid
     (provider, ok, ms) => metrics.aiLatency.observe({ provider, ok: String(ok) }, ms));
   return { storage, llm: gateway, stt, push };
 }
+
+/** Signing key for file links, derived from JWT_SECRET so there is one less secret to manage. */
+export const diskStorage = (env: Env) =>
+  new DiskStorage(resolve(env.FILES_DIR), () => '', createHash('sha256').update(`files:${env.JWT_SECRET}`).digest('hex'));

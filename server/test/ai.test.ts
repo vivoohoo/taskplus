@@ -52,7 +52,7 @@ describe('schema and prompt', () => {
     const s = providerSchema(modules) as { properties: Record<string, Record<string, unknown>>; required: string[] };
     expect(s.properties.module!.enum).toEqual(modules);
     expect(s.properties.customer_phone!.nullable).toBe(true);
-    expect(s.properties.priority!.enum).toEqual(['High', 'Medium', 'Low']);
+    expect(s.properties.priority!.enum).toEqual(['Critical', 'High', 'Medium', 'Low']);
     expect(s.required).toEqual(expect.arrayContaining(['subject', 'priority', 'details']));
     expect(taskExtraction(['A']).shape.module.options).toEqual(['A', 'Other']);
   });

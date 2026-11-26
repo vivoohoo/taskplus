@@ -16,8 +16,8 @@ describe('settings', () => {
   it('lists every problem in one message', () => {
     expect(() => loadEnv({ JWT_SECRET: 'short' })).toThrow(/DATABASE_URL[\s\S]*JWT_SECRET/);
   });
-  it('refuses DEV_FIXED_OTP in production', () => {
-    expect(() => loadEnv({ ...base, NODE_ENV: 'production', DEV_FIXED_OTP: '123456' })).toThrow(/DEV_FIXED_OTP: must not be set/);
+  it('refuses SEED_PASSWORD in production', () => {
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', SEED_PASSWORD: 'x' })).toThrow(/SEED_PASSWORD: must not be set/);
   });
   it('asks for a provider key only when it is used', () => {
     expect(() => requireKey(loadEnv(base), 'GEMINI_API_KEY')).toThrow(/GEMINI_API_KEY is not set/);

@@ -5,6 +5,8 @@ import { createDb, type Db } from '../../src/db/client';
 import { ensureDatabase, migrateToLatest } from '../../src/db/migrate';
 import { seed } from '../../src/db/seed';
 
+export const TEST_PASSWORD = 'Test@1234';
+
 export async function startTestDb(): Promise<{ url: string; db: Db; stop: () => Promise<void> }> {
   let container: StartedMSSQLServerContainer | undefined;
   let base = process.env.TEST_DATABASE_URL;
@@ -19,7 +21,7 @@ export async function startTestDb(): Promise<{ url: string; db: Db; stop: () => 
   await ensureDatabase(url);
   const db = createDb(url);
   await migrateToLatest(db);
-  await seed(db);
+  await seed(db, TEST_PASSWORD);
   return {
     url, db,
     stop: async () => {

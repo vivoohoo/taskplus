@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from '../../src/config/env';
 import { createProviders } from '../../src/container';
-import { structurePrompt } from '../../src/ai/prompts/structure.v1';
+import { PROMPT_VERSION, structurePrompt } from '../../src/ai/prompts/structure.v2';
 import { providerSchema } from '../../src/ai/schema/taskExtraction';
 import { validateExtraction } from '../../src/ai/validate';
 import { SEED } from '../../src/db/seed';
@@ -48,7 +48,7 @@ async function main() {
       console.log(`#${c.id} ${c.lang}: error ${(e as Error).message}`);
     }
   }
-  console.log(`\nAccuracy over ${cases.length} messages (${failed} failed, avg ${Math.round(ms / Math.max(1, cases.length - failed))} ms):`);
+  console.log(`\n${PROMPT_VERSION}: accuracy over ${cases.length} messages (${failed} failed, avg ${Math.round(ms / Math.max(1, cases.length - failed))} ms):`);
   for (const f of FIELDS) console.log(`  ${f.padEnd(18)} ${((score[f]! / cases.length) * 100).toFixed(0).padStart(3)}%`);
 }
 

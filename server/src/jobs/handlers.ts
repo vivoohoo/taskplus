@@ -11,7 +11,7 @@ import type { PushProvider } from '../push/PushProvider';
 import type { StorageProvider } from '../storage/StorageProvider';
 import { AiUnavailableError } from '../ai/llm/LlmProvider';
 import type { LlmGateway } from '../ai/llm/gateway';
-import { PROMPT_VERSION, structurePrompt } from '../ai/prompts/structure.v1';
+import { PROMPT_VERSION, structurePrompt } from '../ai/prompts/structure.v2';
 import { providerSchema } from '../ai/schema/taskExtraction';
 import type { SttProvider } from '../ai/stt/SttProvider';
 import { validateExtraction } from '../ai/validate';
@@ -125,11 +125,10 @@ export function jobHandlers(d: JobDeps): JobHandlers {
     if (invalidTokens.length) await d.db.deleteFrom('device_tokens').where('fcm_token', 'in', invalidTokens).execute();
   }
 
-  /** D3: a tagged department task pushes to the tagged person and the head; otherwise the whole department. */
+  /** D3 (owner, 26 Nov): a tagged department task pushes to the tagged person only; otherwise the whole department. */
   async function recipientsOfNew(thread: Thread, task: Task, senderId: string) {
     if (thread.type === 'direct') return [otherUserId(thread, senderId)!];
-    const dept = await d.db.selectFrom('departments').select('head_user_id').where('id', '=', thread.department_id!).executeTakeFirstOrThrow();
-    if (task.tagged_user_id) return [task.tagged_user_id, dept.head_user_id].filter((x): x is string => !!x && x !== senderId);
+    if (task.tagged_user_id) return task.tagged_user_id === senderId ? [] : [task.tagged_user_id];
     const members = await d.db.selectFrom('users').select('id').where('department_id', '=', thread.department_id).where('is_active', '=', true).execute();
     return members.map((u) => u.id).filter((id) => id !== senderId);
   }

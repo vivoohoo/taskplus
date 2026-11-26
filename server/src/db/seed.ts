@@ -1,9 +1,10 @@
 // npm run seed: 3 departments with module lists and a head each, 10 people in total. Safe to run again.
-// Phone numbers are made up (98000 000xx). Sign in with any of them and DEV_FIXED_OTP.
+// Phone numbers are made up (98000 000xx). Everyone gets SEED_PASSWORD as a starting password (only if they have none yet).
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from '../config/env';
 import { createDb, type Db } from './client';
 import type { Role } from './schema';
+import { hashPassword } from '../modules/auth/routes';
 
 export const SEED = {
   departments: [
@@ -25,7 +26,7 @@ export const SEED = {
   ] as { name: string; phone: string; dept: string | null; role: Role }[],
 };
 
-export async function seed(db: Db) {
+export async function seed(db: Db, password = process.env.SEED_PASSWORD) {
   const deptIds = new Map<string, string>();
   for (const d of SEED.departments) {
     const found = await db.selectFrom('departments').select('id').where('name', '=', d.name).executeTakeFirst();
@@ -38,6 +39,10 @@ export async function seed(db: Db) {
     const id = found?.id ?? (await db.insertInto('users').values({
       name: u.name, phone: u.phone, role: u.role, department_id: u.dept ? deptIds.get(u.dept)! : null,
     }).output('inserted.id').executeTakeFirstOrThrow()).id;
+    if (password) {
+      const has = await db.selectFrom('users').select('password_hash').where('id', '=', id).executeTakeFirstOrThrow();
+      if (!has.password_hash) await db.updateTable('users').set(await hashPassword(password)).where('id', '=', id).execute();
+    }
     if (u.role === 'dept_head' && u.dept) await db.updateTable('departments').set({ head_user_id: id }).where('id', '=', deptIds.get(u.dept)!).execute();
   }
 }

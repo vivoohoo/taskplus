@@ -6,11 +6,14 @@ type Stamp = ColumnType<Date, Date | undefined, Date>; // datetimeoffset, defaul
 type Json<T> = ColumnType<T, string, string>; // stored as nvarchar(max) JSON text
 
 export type Role = 'staff' | 'dept_head' | 'admin';
-export type Priority = 'High' | 'Medium' | 'Low';
-export type TaskStatus = 'Open' | 'Accepted' | 'InProgress' | 'Closed';
+export type Priority = 'Critical' | 'High' | 'Medium' | 'Low';
+export type TaskStatus = 'Open' | 'Accepted' | 'InProgress' | 'WaitingInfo' | 'Blocked' | 'Completed' | 'Verified' | 'Closed' | 'Rejected' | 'Transferred' | 'Cancelled';
 export type AiStatus = 'pending' | 'done' | 'needs_review';
 export type MessageKind = 'text' | 'voice' | 'attachment';
-export type TaskEventType = 'created' | 'structured' | 'accepted' | 'reassigned' | 'status_changed' | 'closed';
+export type TaskEventType = 'created' | 'structured' | 'accepted' | 'reassigned' | 'status_changed' | 'closed'
+  | 'cancelled' | 'edited' | 'assigned' | 'declined' | 'reassign_asked' | 'reassign_refused' | 'completed' | 'verified' | 'reopened'
+  | 'question' | 'answered' | 'blocked' | 'unblocked' | 'request' | 'request_refused' | 'rejected' | 'transferred' | 'escalated' | 'attended'
+  | 'priority_changed' | 'warned';
 
 export interface Overrides { priority?: Priority; customer?: string; license?: string; module?: string }
 
@@ -19,6 +22,7 @@ export interface Database {
   users: {
     id: Id; name: string; phone: string; email: string | null; role: Role; department_id: string | null;
     avatar_url: string | null; is_active: Generated<boolean>; created_at: Stamp; updated_at: Stamp;
+    password_hash: Buffer | null; password_salt: Buffer | null; failed_logins: Generated<number>; locked_until: Date | null;
   };
   device_tokens: { id: Id; user_id: string; fcm_token: string; platform: 'android' | 'ios'; last_seen_at: Stamp };
   threads: {

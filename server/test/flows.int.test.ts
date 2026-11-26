@@ -141,7 +141,8 @@ describe('Flow B: voice note', () => {
     const pre = await t.as(tok.riya!).post('/v1/uploads/presign', { threadId: th.id, mime: 'audio/ogg', sizeBytes: audio.length, purpose: 'audio' });
     expect(pre.status).toBe(200);
     expect(pre.body.key).toMatch(/^direct\/\d{4}\/\d{2}\/.+\.ogg$/);
-    expect((await request(t.app.server).put(new URL(pre.body.url).pathname).set('content-type', 'audio/ogg').send(audio)).status).toBe(200);
+    expect(pre.body.url).toMatch(/^\/v1\/files\/raw\/direct\//); // relative: the phone adds its own server address
+    expect((await request(t.app.server).put(pre.body.url).set('content-type', 'audio/ogg').send(audio)).status).toBe(200);
 
     const r = await send('riya', th.id, { kind: 'voice', audioKey: pre.body.key, audioDurationS: 12 });
     expect(r.status).toBe(201);
@@ -160,7 +161,7 @@ describe('Flow B: voice note', () => {
     expect((await t.as(tok.riya!).post('/v1/uploads/presign', { threadId: th.id, mime: 'image/png', sizeBytes: 11 * 1024 * 1024, purpose: 'attachment' })).status).toBe(400);
     const deptTh = await openDept('riya', 'Sales');
     const pre = await t.as(tok.riya!).post('/v1/uploads/presign', { threadId: deptTh.id, mime: 'image/png', sizeBytes: 3, purpose: 'attachment' });
-    await request(t.app.server).put(new URL(pre.body.url).pathname).set('content-type', 'image/png').send(Buffer.from('png'));
+    await request(t.app.server).put(pre.body.url).set('content-type', 'image/png').send(Buffer.from('png'));
     expect((await send('riya', th.id, { kind: 'attachment', attachmentKeys: [pre.body.key] })).status).toBe(400);
   });
 
@@ -168,7 +169,7 @@ describe('Flow B: voice note', () => {
     t.fakes.stt.failing = true;
     const th = await openUser('riya', 'dhaval');
     const pre = await t.as(tok.riya!).post('/v1/uploads/presign', { threadId: th.id, mime: 'audio/ogg', sizeBytes: 4, purpose: 'audio' });
-    await request(t.app.server).put(new URL(pre.body.url).pathname).set('content-type', 'audio/ogg').send(Buffer.from('OggS'));
+    await request(t.app.server).put(pre.body.url).set('content-type', 'audio/ogg').send(Buffer.from('OggS'));
     const r = await send('riya', th.id, { kind: 'voice', audioKey: pre.body.key, audioDurationS: 3 });
     await t.app.services.jobs.idle();
     const task = await t.db.selectFrom('tasks').select(['ai_status', 'ai_error']).where('id', '=', r.body.task.id).executeTakeFirstOrThrow();
@@ -213,7 +214,7 @@ describe('Flow C: accept, reassign, status', () => {
     expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['created', 'structured', 'accepted', 'reassigned', 'status_changed', 'closed']));
   });
 
-  it('pushes a tagged department task to the tagged person and the head only (D3)', async () => {
+  it('pushes a tagged department task to the tagged person only (D3)', async () => {
     await t.as(tok.vishwas!).post('/v1/devices', { fcmToken: 'vishwas-token-'.padEnd(40, 'v'), platform: 'android' });
     await t.as(tok.tushar!).post('/v1/devices', { fcmToken: 'tushar-token-'.padEnd(40, 't'), platform: 'android' });
     await t.as(tok.dhaval!).post('/v1/devices', { fcmToken: 'dhaval-token2-'.padEnd(40, 'd'), platform: 'android' });
@@ -223,7 +224,7 @@ describe('Flow C: accept, reassign, status', () => {
     await t.app.services.jobs.idle();
     const tokens = t.fakes.push.sent.slice(before).flatMap((x) => x.tokens);
     expect(tokens.some((x) => x.startsWith('vishwas'))).toBe(true);
-    expect(tokens.some((x) => x.startsWith('tushar'))).toBe(true);
+    expect(tokens.some((x) => x.startsWith('tushar'))).toBe(false);
     expect(tokens.some((x) => x.startsWith('dhaval'))).toBe(false);
   });
 });
@@ -244,6 +245,37 @@ describe('Flow D: filters', () => {
     await t.as(tok.supLead!).post(`/v1/tasks/${r.body.task.id}/status`, { status: 'Closed' });
     expect((await t.as(tok.karan!).get('/v1/tasks?filter=closed')).body.items[0].task.id).toBe(r.body.task.id);
     expect((await t.as(tok.supLead!).get('/v1/tasks?filter=my_pending')).body.items.map((x: { task: { id: string } }) => x.task.id)).not.toContain(r.body.task.id);
+  });
+});
+
+describe('decisions D1, D4: sent by me, cancel', () => {
+  it('lists my open sent tasks, and lets me cancel one until someone accepts it', async () => {
+    const th = await openDept('karan', 'Sales');
+    const a = await send('karan', th.id, { bodyText: 'Quotation for 5 more Profit NX users' });
+    const b = await send('karan', th.id, { bodyText: 'Demo for Kaveri Steel next week' });
+    const sent = (await t.as(tok.karan!).get('/v1/tasks?filter=sent_by_me')).body.items.map((x: { task: { id: string } }) => x.task.id);
+    expect(sent).toEqual(expect.arrayContaining([a.body.task.id, b.body.task.id]));
+    expect((await t.as(tok.karan!).get('/v1/tasks/counts')).body.sentByMe).toBeGreaterThanOrEqual(2);
+
+    expect((await t.as(tok.priya!).post(`/v1/tasks/${a.body.task.id}/cancel`)).status).toBe(403); // not the sender
+    const c = await t.as(tok.karan!).post(`/v1/tasks/${a.body.task.id}/cancel`);
+    expect(c.body.task.status).toBe('Cancelled');
+    expect((await t.as(tok.karan!).get('/v1/tasks?filter=sent_by_me')).body.items.map((x: { task: { id: string } }) => x.task.id)).not.toContain(a.body.task.id);
+
+    await t.as(tok.priya!).post(`/v1/tasks/${b.body.task.id}/accept`);
+    const late = await t.as(tok.karan!).post(`/v1/tasks/${b.body.task.id}/cancel`);
+    expect(late.status).toBe(409);
+  });
+
+  it('serves a stored file only with a valid signed link', async () => {
+    const th = await openUser('riya', 'dhaval');
+    const pre = await t.as(tok.riya!).post('/v1/uploads/presign', { threadId: th.id, mime: 'image/png', sizeBytes: 3, purpose: 'attachment' });
+    expect((await request(t.app.server).put(pre.body.url).set('content-type', 'image/jpeg').send(Buffer.from('png'))).status).toBe(403); // wrong type
+    expect((await request(t.app.server).put(pre.body.url).set('content-type', 'image/png').send(Buffer.from('png'))).status).toBe(200);
+    await send('riya', th.id, { kind: 'attachment', attachmentKeys: [pre.body.key] });
+    const link = (await t.as(tok.dhaval!).get(`/v1/files/url?key=${encodeURIComponent(pre.body.key)}`)).body.url as string;
+    expect((await request(t.app.server).get(link)).body.toString()).toBe('png');
+    expect((await request(t.app.server).get(link.replace(/sig=[^&]+/, 'sig=forged'))).status).toBe(403);
   });
 });
 

@@ -1,7 +1,7 @@
 // The one definition of what the LLM must return (spec §9.2). Zod checks it; the provider JSON schema is generated from it.
 import { z } from 'zod';
 
-export const PRIORITIES = ['High', 'Medium', 'Low'] as const;
+export const PRIORITIES = ['Critical', 'High', 'Medium', 'Low'] as const;
 
 /** Per department, because `module` must be one of that department's modules (or "Other"). */
 export function taskExtraction(modules: string[]) {

@@ -20,6 +20,7 @@ import { threadRoutes } from './modules/threads/routes';
 import { uploadRoutes } from './modules/uploads/routes';
 import { deviceRoutes } from './modules/users/devices';
 import { startRealtime, type Realtime } from './realtime';
+import { DiskStorage } from './storage/disk';
 
 export interface Services extends Providers { realtime: Realtime; jobs: JobQueue; handlers: JobHandlers; metrics: Metrics }
 
@@ -65,7 +66,13 @@ export async function buildApp({ env, db, logger, providers, metrics = createMet
   services.jobs = env.QUEUE_MODE === 'bullmq'
     ? bullmqQueue(env.REDIS_URL, env.JOB_MAX_ATTEMPTS)
     : inlineQueue(services.handlers, { maxAttempts: env.JOB_MAX_ATTEMPTS, log: logger, unitMs: backoffUnitMs });
-  app.addHook('onClose', async () => { await services.jobs.close(); await services.realtime.close(); });
+  // D6: every 6 hours, delete stored files older than FILE_RETENTION_DAYS (tasks, text and transcripts stay).
+  const store = providers.storage;
+  const retention = store instanceof DiskStorage
+    ? setInterval(() => { store.deleteOlderThan(env.FILE_RETENTION_DAYS).then((n) => { if (n) logger.info({ removed: n }, 'old files deleted'); }).catch((e) => logger.error({ err: (e as Error).message }, 'file clean-up failed')); }, 6 * 3600_000)
+    : undefined;
+  retention?.unref();
+  app.addHook('onClose', async () => { clearInterval(retention); await services.jobs.close(); await services.realtime.close(); });
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) return reply.code(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
