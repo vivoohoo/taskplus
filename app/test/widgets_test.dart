@@ -16,10 +16,12 @@ void main() {
       testWidgets('3 buttons in 2 rows fit $width dp with no overflow', (tester) async {
         await pumpAt(tester, wrap(FilterBlock(onTap: (_) {}, myPending: 128, overdue: 37), width: width), width: width);
         expect(tester.takeException(), isNull);
-        for (final f in TaskFilter.values) expect(find.byKey(Key('filter-${f.api}')), findsOneWidget);
+        for (final f in TaskFilter.values) {
+          expect(find.byKey(Key('filter-${f.api}')), findsOneWidget);
+        }
         final pending = tester.getRect(find.byKey(const Key('filter-my_pending')));
         final overdue = tester.getRect(find.byKey(const Key('filter-overdue')));
-        final closed = tester.getRect(find.byKey(const Key('filter-closed')));
+        final closed = tester.getRect(find.byKey(const Key('filter-sent_by_me')));
         expect(pending.top, overdue.top); // row 1
         expect(closed.top, greaterThan(pending.bottom)); // row 2
         expect(closed.width, closeTo(pending.width, 1)); // same width
@@ -67,6 +69,11 @@ void main() {
   });
 
   group('card actions by role', () {
+    test('the sender can cancel only while it is Open (D4)', () {
+      expect(CardActions.of(task(), viewer: me, senderId: 'U-ME', directRecipient: false).cancel, isTrue);
+      expect(CardActions.of(task(status: 'Accepted', assignee: 'U-V'), viewer: me, senderId: 'U-ME', directRecipient: false).cancel, isFalse);
+      expect(CardActions.of(task(), viewer: me, senderId: 'U-RIYA', directRecipient: false).cancel, isFalse);
+    });
     test('recipient can accept an open task; the sender cannot', () {
       expect(CardActions.of(task(), viewer: me, senderId: 'U-RIYA', directRecipient: false).accept, isTrue);
       expect(CardActions.of(task(), viewer: me, senderId: 'U-ME', directRecipient: false).accept, isFalse);
@@ -85,7 +92,7 @@ void main() {
     await pumpAt(tester, wrap(SentBubble(item: ChatItem(message: message(sender: 'U-ME'), task: task(status: 'Accepted')))));
     expect(find.text('Profit NX login failing'), findsOneWidget);
     expect(find.textContaining('Accepted'), findsOneWidget);
-    expect(find.text('Mehta Traders'), findsNothing); // the sender never sees the structured card
+    expect(find.text('Mehta Traders'), findsNothing); // the bubble itself holds only my words; the card sits under it in the chat
   });
 
   group('composer', () {

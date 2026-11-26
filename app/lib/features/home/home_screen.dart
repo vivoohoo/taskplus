@@ -74,7 +74,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ),
-          SliverToBoxAdapter(child: FilterBlock(myPending: counts?.myPending, overdue: counts?.overdue, onTap: (f) => context.push('/tasks/${f.api}'))),
+          SliverToBoxAdapter(child: FilterBlock(myPending: counts?.myPending, overdue: counts?.overdue, sentByMe: counts?.sentByMe, onTap: (f) => context.push('/tasks/${f.api}'))),
           ...threads.when(
             loading: () => [const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))],
             error: (e, _) => [SliverFillRemaining(child: Center(child: Text('$e')))],

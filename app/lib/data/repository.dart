@@ -7,8 +7,10 @@ import 'models.dart';
 
 /// Every API call the app makes. Errors come out as [ApiException] with a readable message.
 class Repository {
-  Repository(this._api);
+  Repository(this._api, {String Function(String)? absolute}) : _absolute = absolute ?? ((u) => u);
   final ApiClient _api;
+  /// Turns a server path (/v1/files/raw/...) into a full address on the current server.
+  final String Function(String) _absolute;
   Dio get _dio => _api.dio;
 
   Future<T> _call<T>(Future<T> Function() f) async {
@@ -57,16 +59,17 @@ class Repository {
   Future<String> upload(String threadId, File file, String mime, String purpose) => _call(() async {
         final size = await file.length();
         final p = (await _dio.post('/uploads/presign', data: {'threadId': threadId, 'mime': mime, 'sizeBytes': size, 'purpose': purpose})).data;
-        await Dio().put(p['url'] as String,
+        await Dio().put(_absolute(p['url'] as String),
             data: file.openRead(),
             options: Options(headers: {...(p['headers'] as Map).cast<String, String>(), Headers.contentLengthHeader: size}));
         return p['key'] as String;
       });
 
-  Future<String> fileUrl(String key) => _call(() async => (await _dio.get('/files/url', queryParameters: {'key': key})).data['url'] as String);
+  Future<String> fileUrl(String key) => _call(() async => _absolute((await _dio.get('/files/url', queryParameters: {'key': key})).data['url'] as String));
 
   Future<Task> accept(String taskId) => _task(() => _dio.post('/tasks/$taskId/accept'));
   Future<Task> reassign(String taskId, String assigneeId) => _task(() => _dio.post('/tasks/$taskId/reassign', data: {'assigneeId': assigneeId}));
+  Future<Task> cancel(String taskId) => _task(() => _dio.post('/tasks/$taskId/cancel'));
   Future<Task> setStatus(String taskId, String status) => _task(() => _dio.post('/tasks/$taskId/status', data: {'status': status}));
   Future<Task> _task(Future<Response> Function() f) => _call(() async => Task.fromJson((await f()).data['task'] as Map<String, dynamic>));
 
@@ -78,9 +81,9 @@ class Repository {
         );
       });
 
-  Future<({int myPending, int overdue})> counts() => _call(() async {
+  Future<({int myPending, int overdue, int sentByMe})> counts() => _call(() async {
         final d = (await _dio.get('/tasks/counts')).data;
-        return (myPending: (d['myPending'] as num).toInt(), overdue: (d['overdue'] as num).toInt());
+        return (myPending: (d['myPending'] as num).toInt(), overdue: (d['overdue'] as num).toInt(), sentByMe: ((d['sentByMe'] as num?) ?? 0).toInt());
       });
 
   Future<DepartmentInfo> department(String id) =>

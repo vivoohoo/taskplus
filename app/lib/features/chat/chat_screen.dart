@@ -85,7 +85,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _entry(ChatItem i, AppUser? me) {
-    if (me != null && i.message.senderId == me.id) return SentBubble(item: i);
+    // D5: my own message, with the card the AI made from it underneath.
+    if (me != null && i.message.senderId == me.id) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        SentBubble(item: i),
+        if (i.task != null) Align(
+          alignment: Alignment.centerRight,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: TaskCard(item: i, directRecipient: false, onTask: ref.read(chatProvider(widget.threadId).notifier).applyTask),
+          ),
+        ),
+      ]);
+    }
     if (i.task == null) return SentBubble(item: i, received: true);
     final thread = widget.thread ?? ref.read(threadsProvider).value?.where((t) => t.id == widget.threadId).firstOrNull;
     final directRecipient = thread?.isDepartment != true;
@@ -109,7 +121,7 @@ class SentBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     final m = item.message;
-    final status = switch (item.task?.status) { 'Accepted' => 'Accepted', 'InProgress' => 'In progress', 'Closed' => 'Closed', _ => 'Open' };
+    final status = statusLabel(item.task?.status ?? 'Open');
     return Align(
       alignment: received ? Alignment.centerLeft : Alignment.centerRight,
       child: ConstrainedBox(

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'core/auth/auth_controller.dart';
+import 'core/config.dart';
 import 'core/theme.dart';
 import 'features/auth/login_screen.dart';
 import 'data/models.dart';
@@ -13,7 +14,11 @@ import 'features/home/home_screen.dart';
 import 'features/notifications/push.dart';
 import 'features/search/search_screen.dart';
 
-void main() => runApp(const ProviderScope(child: TaskPlusApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppConfig.load();
+  runApp(const ProviderScope(child: TaskPlusApp()));
+}
 
 /// Sign-in decides the route: nobody signed in -> /login, otherwise -> /.
 final routerProvider = Provider<GoRouter>((ref) {

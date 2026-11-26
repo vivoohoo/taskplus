@@ -19,7 +19,7 @@ class AppUser {
 final tokenStoreProvider = Provider<TokenStore>((ref) => SecureTokenStore());
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient(
-      baseUrl: AppConfig.apiBaseUrl,
+      baseUrl: ref.watch(serverUrlProvider),
       tokens: ref.watch(tokenStoreProvider),
       onSignedOut: () => ref.read(authProvider.notifier).signedOut(),
     ));
@@ -41,17 +41,9 @@ class AuthController extends AsyncNotifier<AppUser?> {
     }
   }
 
-  Future<void> requestOtp(String phone) async {
+  Future<void> signIn(String phone, String password) async {
     try {
-      await _dio.post('/auth/otp/request', data: {'phone': phone}, options: Options(extra: {'noAuth': true}));
-    } catch (e) {
-      throw ApiException.from(e);
-    }
-  }
-
-  Future<void> verifyOtp(String phone, String code) async {
-    try {
-      final r = await _dio.post('/auth/otp/verify', data: {'phone': phone, 'code': code}, options: Options(extra: {'noAuth': true}));
+      final r = await _dio.post('/auth/login', data: {'phone': phone, 'password': password}, options: Options(extra: {'noAuth': true}));
       await _tokens.save(r.data['accessToken'] as String, r.data['refreshToken'] as String);
       state = AsyncData(AppUser.fromJson(r.data['user'] as Map<String, dynamic>));
     } catch (e) {

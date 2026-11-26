@@ -16,10 +16,9 @@ void main() {
   testWidgets('phone, then code, then signed in', (tester) async {
     final tokens = MemoryTokenStore();
     final api = FakeApi((method, path, body, headers) => switch (path) {
-          '/auth/otp/request' => (200, {'sent': true}),
-          '/auth/otp/verify' => body!['code'] == '123456'
+          '/auth/login' => body!['password'] == 'Taskplus@2026'
               ? (200, {'accessToken': 'a', 'refreshToken': 'r', 'user': {'id': 'u1', 'name': 'Riya Shah', 'role': 'staff', 'departmentId': 'd1'}})
-              : (401, {'error': {'code': 'UNAUTHORIZED', 'message': 'Wrong number or code.'}}),
+              : (401, {'error': {'code': 'UNAUTHORIZED', 'message': 'Wrong number or password.'}}),
           '/threads' => (200, {'threads': []}),
           '/tasks/counts' => (200, {'myPending': 3, 'overdue': 1}),
           _ => (404, {'error': {'code': 'NOT_FOUND', 'message': 'Not found.'}}),
@@ -33,16 +32,12 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const Key('phone')), '9800000002');
-    await tester.tap(find.text('Send code'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('code')), findsOneWidget);
-
-    await tester.enterText(find.byKey(const Key('code')), '000000');
+    await tester.enterText(find.byKey(const Key('password')), 'wrong123');
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
-    expect(find.text('Wrong number or code.'), findsOneWidget);
+    expect(find.text('Wrong number or password.'), findsOneWidget);
 
-    await tester.enterText(find.byKey(const Key('code')), '123456');
+    await tester.enterText(find.byKey(const Key('password')), 'Taskplus@2026');
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('search')), findsOneWidget); // home: search, filters, chats

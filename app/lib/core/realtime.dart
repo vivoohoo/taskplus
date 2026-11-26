@@ -14,8 +14,8 @@ class RealtimeEvent {
 
 /// One Socket.IO connection while signed in. Screens listen to [events] and join a thread's room while open.
 class RealtimeClient {
-  RealtimeClient(String token) {
-    _socket = io.io(AppConfig.apiBaseUrl, io.OptionBuilder().setTransports(['websocket']).setAuth({'token': token}).enableReconnection().build());
+  RealtimeClient(String token, String baseUrl) {
+    _socket = io.io(baseUrl, io.OptionBuilder().setTransports(['websocket']).setAuth({'token': token}).enableReconnection().build());
     for (final e in const ['message.created', 'task.transcribed', 'task.structured', 'task.updated']) {
       _socket.on(e, (d) { if (d is Map) _events.add(RealtimeEvent(e, Map<String, dynamic>.from(d))); });
     }
@@ -46,7 +46,7 @@ final realtimeProvider = FutureProvider<RealtimeClient?>((ref) async {
   if (user == null) return null;
   final tokens = await ref.read(tokenStoreProvider).read();
   if (tokens == null) return null;
-  final client = RealtimeClient(tokens.access);
+  final client = RealtimeClient(tokens.access, ref.watch(serverUrlProvider));
   ref.onDispose(client.dispose);
   return client;
 });

@@ -29,7 +29,7 @@ void main() {
   testWidgets('open a chat from search, see the task card, reply', (tester) async {
     // Riya sends Dhaval a task through the API.
     final api = Dio(BaseOptions(baseUrl: '${AppConfig.apiBaseUrl}/v1'));
-    final riya = (await api.post('/auth/otp/verify', data: {'phone': '9800000002', 'code': '123456'})).data;
+    final riya = (await api.post('/auth/login', data: {'phone': '9800000002', 'password': 'Taskplus@2026'})).data;
     final auth = Options(headers: {'authorization': 'Bearer ${riya['accessToken']}'});
     final search = (await api.get('/search', queryParameters: {'q': 'Dhaval'}, options: auth)).data['results'] as List;
     final thread = (await api.post('/threads/open', data: {'targetType': 'user', 'targetId': search.first['id']}, options: auth)).data['thread'];
@@ -43,9 +43,7 @@ void main() {
     ], child: const TaskPlusApp()));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('phone')), '9800000005');
-    await tester.tap(find.text('Send code'));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-    await tester.enterText(find.byKey(const Key('code')), '123456');
+    await tester.enterText(find.byKey(const Key('password')), 'Taskplus@2026');
     await tester.tap(find.text('Sign in'));
     await waitFor(tester, find.byKey(const Key('search')));
 

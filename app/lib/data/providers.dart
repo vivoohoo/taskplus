@@ -1,11 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/auth_controller.dart';
+import '../core/config.dart';
 import 'models.dart';
 import 'outbox.dart';
 import 'repository.dart';
 
-final repositoryProvider = Provider<Repository>((ref) => Repository(ref.watch(apiClientProvider)));
+final repositoryProvider = Provider<Repository>((ref) => Repository(ref.watch(apiClientProvider), absolute: ref.watch(serverUrlProvider.notifier).absolute));
 
 final outboxDbProvider = Provider<OutboxDb>((ref) {
   final db = OutboxDb();
@@ -29,6 +30,6 @@ final outboxProvider = Provider<OutboxSender>((ref) {
 });
 
 final threadsProvider = FutureProvider<List<ThreadSummary>>((ref) => ref.watch(repositoryProvider).threads());
-final countsProvider = FutureProvider<({int myPending, int overdue})>((ref) => ref.watch(repositoryProvider).counts());
+final countsProvider = FutureProvider<({int myPending, int overdue, int sentByMe})>((ref) => ref.watch(repositoryProvider).counts());
 
 final departmentProvider = FutureProvider.family<DepartmentInfo, String>((ref, id) => ref.watch(repositoryProvider).department(id));

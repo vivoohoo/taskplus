@@ -159,7 +159,7 @@ class _ComposerState extends ConsumerState<Composer> {
     if (!await _speech.initialize(onStatus: (s) { if (s == 'done' || s == 'notListening') setState(() => _listening = false); })) return;
     final base = _text.text;
     setState(() => _listening = true);
-    await _speech.listen(localeId: _locale, onResult: (r) {
+    await _speech.listen(listenOptions: SpeechListenOptions(localeId: _locale), onResult: (r) {
       final t = r.recognizedWords;
       _text.value = TextEditingValue(text: base.isEmpty ? t : '$base $t', selection: TextSelection.collapsed(offset: (base.isEmpty ? t : '$base $t').length));
     });

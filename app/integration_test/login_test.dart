@@ -18,9 +18,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('phone')), '9800000002');
-    await tester.tap(find.text('Send code'));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-    await tester.enterText(find.byKey(const Key('code')), '123456');
+    await tester.enterText(find.byKey(const Key('password')), 'Taskplus@2026');
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expect(find.byKey(const Key('search')), findsOneWidget);

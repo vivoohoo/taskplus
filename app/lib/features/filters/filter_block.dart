@@ -4,16 +4,16 @@ import 'package:material_ui/material_ui.dart';
 enum TaskFilter {
   myPending('my_pending', 'My Pending'),
   overdue('overdue', 'Overdue'),
-  closed('closed', 'Closed');
+  sentByMe('sent_by_me', 'Sent by me');
 
   const TaskFilter(this.api, this.label);
   final String api, label;
 }
 
 class FilterBlock extends StatelessWidget {
-  const FilterBlock({super.key, required this.onTap, this.myPending, this.overdue});
+  const FilterBlock({super.key, required this.onTap, this.myPending, this.overdue, this.sentByMe});
   final void Function(TaskFilter) onTap;
-  final int? myPending, overdue;
+  final int? myPending, overdue, sentByMe;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -26,9 +26,9 @@ class FilterBlock extends StatelessWidget {
           ]),
           const SizedBox(height: 8),
           Row(children: [
-            Expanded(child: _FilterButton(TaskFilter.closed, null, onTap)),
+            Expanded(child: _FilterButton(TaskFilter.sentByMe, sentByMe, onTap)),
             const SizedBox(width: 8),
-            const Expanded(child: SizedBox.shrink()), // keeps Closed the same width as the others
+            const Expanded(child: SizedBox.shrink()), // keeps it the same width as the others
           ]),
         ]),
       );
