@@ -13,7 +13,7 @@ export async function threadRoutes(app: FastifyInstance) {
   });
 
   app.post('/threads/open', async (req) => {
-    const body = parse(z.object({ targetType: z.enum(['user', 'department']), targetId: Id }), req.body);
+    const body = parse(z.object({ targetType: z.enum(['user', 'department', 'team']), targetId: Id }), req.body);
     const me = await currentUser(app.db, req.userId);
     const t = await openThread(app.db, me, body);
     return { thread: (await listThreads(app.db, me)).find((x) => x.id === t.id) };

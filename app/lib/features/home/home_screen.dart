@@ -51,10 +51,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text('Task Plus'),
         actions: [
-          PopupMenuButton<String>(
-            onSelected: (_) => ref.read(authProvider.notifier).signOut(),
-            itemBuilder: (_) => const [PopupMenuItem(value: 'out', child: Text('Sign out'))],
-          ),
+          IconButton(key: const Key('profile'), tooltip: 'Profile', icon: const Icon(Icons.account_circle_outlined), onPressed: () => context.push('/profile')),
         ],
       ),
       body: RefreshIndicator(

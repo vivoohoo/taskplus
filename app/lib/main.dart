@@ -12,6 +12,7 @@ import 'features/filters/filter_block.dart';
 import 'features/filters/filter_results_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/notifications/push.dart';
+import 'features/profile/profile_screen.dart';
 import 'features/search/search_screen.dart';
 
 Future<void> main() async {
@@ -30,6 +31,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
       GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+      GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
       GoRoute(path: '/chat/:id', builder: (_, s) => ChatScreen(threadId: s.pathParameters['id']!, thread: s.extra as ThreadSummary?)),
       GoRoute(path: '/tasks/:filter', builder: (_, s) => FilterResultsScreen(filter: TaskFilter.values.firstWhere((f) => f.api == s.pathParameters['filter'], orElse: () => TaskFilter.myPending))),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),

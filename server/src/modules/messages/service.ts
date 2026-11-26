@@ -76,7 +76,7 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
       }
       const task = await tx.insertInto('tasks').values({
         message_id: message.id, thread_id: thread.id, priority, due_at: dueAt(env, priority),
-        department_id: thread.department_id, tagged_user_id: body.taggedUserId ?? null,
+        department_id: thread.department_id, team_id: thread.team_id, tagged_user_id: body.taggedUserId ?? null,
         overrides: JSON.stringify(body.overrides),
         subject: null, module: null, customer_name: null, customer_phone: null, customer_location: null, license_no: null,
         details: null, assignee_id: null, ai_error: null, ai_provider: null, prompt_version: null, closed_at: null,

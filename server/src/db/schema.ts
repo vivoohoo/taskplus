@@ -5,7 +5,7 @@ type Id = Generated<string>; // uniqueidentifier, NEWSEQUENTIALID()
 type Stamp = ColumnType<Date, Date | undefined, Date>; // datetimeoffset, defaults to now
 type Json<T> = ColumnType<T, string, string>; // stored as nvarchar(max) JSON text
 
-export type Role = 'staff' | 'dept_head' | 'admin';
+export type Role = 'staff' | 'team_lead' | 'dept_head' | 'admin';
 export type Priority = 'Critical' | 'High' | 'Medium' | 'Low';
 export type TaskStatus = 'Open' | 'Accepted' | 'InProgress' | 'WaitingInfo' | 'Blocked' | 'Completed' | 'Verified' | 'Closed' | 'Rejected' | 'Transferred' | 'Cancelled';
 export type AiStatus = 'pending' | 'done' | 'needs_review';
@@ -23,12 +23,15 @@ export interface Database {
     id: Id; name: string; phone: string; email: string | null; role: Role; department_id: string | null;
     avatar_url: string | null; is_active: Generated<boolean>; created_at: Stamp; updated_at: Stamp;
     password_hash: Buffer | null; password_salt: Buffer | null; failed_logins: Generated<number>; locked_until: Date | null;
+    team_id: Generated<string | null>; reports_to_id: Generated<string | null>;
   };
+  teams: { id: Id; department_id: string; name: string; lead_id: string | null; created_at: Stamp };
   device_tokens: { id: Id; user_id: string; fcm_token: string; platform: 'android' | 'ios'; last_seen_at: Stamp };
   threads: {
     id: Id; type: 'direct' | 'department';
     user_a_id: string | null; user_b_id: string | null;       // direct: sorted pair
     requester_id: string | null; department_id: string | null; // department
+    team_id: Generated<string | null>;                          // department chat addressed to one team
     last_message_at: Date | null; created_at: Stamp; updated_at: Stamp;
   };
   messages: {
@@ -41,7 +44,7 @@ export interface Database {
     id: Id; message_id: string; thread_id: string; source: Generated<'app' | 'email' | 'whatsapp'>;
     subject: string | null; module: string | null; customer_name: string | null; customer_phone: string | null;
     customer_location: string | null; license_no: string | null; priority: Priority; details: string | null;
-    status: Generated<TaskStatus>; assignee_id: string | null; tagged_user_id: string | null; department_id: string | null;
+    status: Generated<TaskStatus>; assignee_id: string | null; tagged_user_id: string | null; department_id: string | null; team_id: Generated<string | null>;
     ai_status: Generated<AiStatus>; ai_error: string | null; ai_provider: string | null; prompt_version: string | null;
     overrides: Json<Overrides>; due_at: Date; closed_at: Date | null; created_at: Stamp; updated_at: Stamp;
   };
@@ -55,3 +58,4 @@ export type Department = Selectable<Database['departments']>;
 export type Thread = Selectable<Database['threads']>;
 export type Message = Selectable<Database['messages']>;
 export type Task = Selectable<Database['tasks']>;
+export type Team = Selectable<Database['teams']>;

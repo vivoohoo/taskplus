@@ -76,7 +76,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               itemBuilder: (_, i) {
                 final r = _results[i];
                 return ListTile(
-                  leading: CircleAvatar(child: r.type == 'department' ? const Icon(Icons.groups) : Text(r.name[0])),
+                  leading: CircleAvatar(child: r.type == 'department' ? const Icon(Icons.apartment) : r.type == 'team' ? const Icon(Icons.groups) : Text(r.name[0])),
                   title: Text(r.name),
                   subtitle: r.subtitle == null ? null : Text(r.subtitle!),
                   onTap: () => _open(r),

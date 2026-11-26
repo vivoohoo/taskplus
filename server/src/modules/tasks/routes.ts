@@ -8,6 +8,7 @@ import { Id, parse } from '../../lib/validate';
 import { canSeeThread, currentUser, otherUserId, threadRooms } from '../access';
 import { taskDto } from '../dto';
 import { warningsFor, withTasks } from '../messages/service';
+import { loadOrg, manages, teamsLedBy } from '../org';
 
 const OPEN: TaskStatus[] = ['Open', 'Accepted', 'InProgress'];
 /** Allowed moves for the assignee. */
@@ -68,10 +69,14 @@ export async function taskRoutes(app: FastifyInstance) {
     const { task, thread, senderId } = await load(me, id);
     if (task.status === 'Closed') throw badRequest('This task is closed.');
     const deptId = await handlingDept(thread, senderId);
+    const org = await loadOrg(db);
     const isHead = me.role === 'dept_head' && !!deptId && me.department_id === deptId;
-    if (!isHead && task.assignee_id !== me.id) throw forbidden('Only the department head or the assignee can reassign.');
+    // A team lead may move work in the teams they look after (theirs and those of leads reporting to them).
+    const leadOfIt = !!task.assignee_id ? manages(org, me.id, task.assignee_id) : !!task.team_id && teamsLedBy(org, me.id).includes(task.team_id);
+    if (!isHead && !leadOfIt && task.assignee_id !== me.id) throw forbidden('Only the assignee, their team lead or the department head can reassign.');
     const target = await db.selectFrom('users').select(['id', 'department_id']).where('id', '=', assigneeId).where('is_active', '=', true).executeTakeFirst();
     if (!target || !deptId || target.department_id !== deptId) throw badRequest('Choose someone in the same department.');
+    if (!isHead && task.assignee_id !== me.id && !manages(org, me.id, target.id) && target.id !== me.id) throw badRequest('Choose someone in a team you lead.');
     if (target.id === task.assignee_id) throw badRequest('They already have this task.');
     await db.updateTable('tasks').set({ assignee_id: target.id, status: task.status === 'Open' ? 'Accepted' : task.status, updated_at: new Date() })
       .where('id', '=', task.id).execute();
@@ -119,6 +124,7 @@ export async function taskRoutes(app: FastifyInstance) {
       limit: z.coerce.number().int().min(1).max(100).default(30),
     }), req.query);
     const me = await currentUser(db, req.userId);
+    const myTeams = [...new Set([...(me.team_id ? [me.team_id] : []), ...teamsLedBy(await loadOrg(db), me.id)])];
     let q = db.selectFrom('tasks').innerJoin('messages', 'messages.id', 'tasks.message_id').innerJoin('threads', 'threads.id', 'tasks.thread_id')
       .select('tasks.message_id');
     if (filter === 'sent_by_me') {
@@ -133,7 +139,8 @@ export async function taskRoutes(app: FastifyInstance) {
         eb('tasks.assignee_id', '=', me.id),
         eb.and([eb('tasks.assignee_id', 'is', null), eb.or([
           eb.and([eb('threads.type', '=', 'direct'), eb.or([eb('threads.user_a_id', '=', me.id), eb('threads.user_b_id', '=', me.id)])]),
-          ...(me.department_id ? [eb('tasks.department_id', '=', me.department_id)] : []),
+          ...(me.department_id ? [eb.and([eb('tasks.department_id', '=', me.department_id),
+            eb.or([eb('tasks.team_id', 'is', null), ...(myTeams.length ? [eb('tasks.team_id', 'in', myTeams)] : [])])])] : []),
         ])]),
       ]));
       if (filter === 'overdue') q = q.where('tasks.due_at', '<', new Date());
@@ -151,10 +158,11 @@ export async function taskRoutes(app: FastifyInstance) {
   /** Counts for the filter badges. */
   app.get('/tasks/counts', async (req) => {
     const me = await currentUser(db, req.userId);
+    const myTeams = [...new Set([...(me.team_id ? [me.team_id] : []), ...teamsLedBy(await loadOrg(db), me.id)])];
     const base = sql`FROM tasks t JOIN messages m ON m.id = t.message_id JOIN threads th ON th.id = t.thread_id
       WHERE t.status IN ('Open', 'Accepted', 'InProgress') AND m.sender_id <> ${me.id}
       AND (t.assignee_id = ${me.id} OR (t.assignee_id IS NULL AND ((th.type = 'direct' AND (th.user_a_id = ${me.id} OR th.user_b_id = ${me.id}))
-        ${me.department_id ? sql`OR t.department_id = ${me.department_id}` : sql``})))`;
+        ${me.department_id ? sql`OR (t.department_id = ${me.department_id} AND (t.team_id IS NULL ${myTeams.length ? sql`OR t.team_id IN (${sql.join(myTeams)})` : sql``}))` : sql``})))`;
     const r = await sql<{ pending: number; overdue: number }>`SELECT COUNT(*) AS pending,
       SUM(CASE WHEN t.due_at < SYSDATETIMEOFFSET() THEN 1 ELSE 0 END) AS overdue ${base}`.execute(db);
     const sent = await sql<{ n: number }>`SELECT COUNT(*) AS n FROM tasks t JOIN messages m ON m.id = t.message_id

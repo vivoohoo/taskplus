@@ -8,6 +8,7 @@ import type { Db } from '../../db/client';
 import { AppError, badRequest, forbidden, unauthorized } from '../../lib/errors';
 import { Id, parse } from '../../lib/validate';
 import { currentUser } from '../access';
+import { leadChain, loadOrg, roleLabel, teamsLedBy } from '../org';
 
 export const ACCESS_TTL = '15m';
 export const REFRESH_TTL = '30d';
@@ -81,7 +82,19 @@ export async function authRoutes(app: FastifyInstance) {
     return { ...tokens(u.id), user: publicUser(u) };
   });
 
-  app.get('/me', { preHandler: app.authenticate }, async (req) => publicUser(await currentUser(db, req.userId)));
+  // Profile: the short role label ("ProfitNX lead") and a separate reporting manager line, as in Ornate.
+  app.get('/me', { preHandler: app.authenticate }, async (req) => {
+    const me = await currentUser(db, req.userId);
+    const org = await loadOrg(db);
+    const manager = leadChain(org, me.id)[0];
+    return {
+      ...publicUser(me), teamId: me.team_id, roleLabel: roleLabel(org, me.id),
+      teamName: org.teams.find((t) => t.id === me.team_id)?.name ?? null,
+      departmentName: org.departments.find((d) => d.id === me.department_id)?.name ?? null,
+      reportingManager: manager ? org.users.find((u) => u.id === manager)?.name ?? null : null,
+      leadsTeams: teamsLedBy(org, me.id),
+    };
+  });
 
   /** Change your own password: needs the current one. */
   app.post('/auth/password', { preHandler: app.authenticate }, async (req, reply) => {

@@ -5,9 +5,10 @@ import { loadEnv } from '../config/env';
 import { createDb, type Db } from './client';
 import * as m0001 from './migrations/0001_init';
 import * as m0002 from './migrations/0002_passwords_statuses';
+import * as m0003 from './migrations/0003_teams';
 
 /** Listed here, in order. Add each new migration file to this list. */
-const MIGRATIONS: Record<string, Migration> = { '0001_init': m0001, '0002_passwords_statuses': m0002 };
+const MIGRATIONS: Record<string, Migration> = { '0001_init': m0001, '0002_passwords_statuses': m0002, '0003_teams': m0003 };
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };
 
 export async function ensureDatabase(url: string) {

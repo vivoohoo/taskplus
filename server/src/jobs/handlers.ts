@@ -129,6 +129,10 @@ export function jobHandlers(d: JobDeps): JobHandlers {
   async function recipientsOfNew(thread: Thread, task: Task, senderId: string) {
     if (thread.type === 'direct') return [otherUserId(thread, senderId)!];
     if (task.tagged_user_id) return task.tagged_user_id === senderId ? [] : [task.tagged_user_id];
+    if (thread.team_id) {
+      const team = await d.db.selectFrom('users').select('id').where('team_id', '=', thread.team_id).where('is_active', '=', true).execute();
+      return team.map((u) => u.id).filter((id) => id !== senderId);
+    }
     const members = await d.db.selectFrom('users').select('id').where('department_id', '=', thread.department_id).where('is_active', '=', true).execute();
     return members.map((u) => u.id).filter((id) => id !== senderId);
   }

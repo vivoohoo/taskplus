@@ -89,6 +89,10 @@ class Repository {
   Future<DepartmentInfo> department(String id) =>
       _call(() async => DepartmentInfo.fromJson((await _dio.get('/departments/$id')).data as Map<String, dynamic>));
 
+  Future<Map<String, dynamic>> profile() => _call(() async => (await _dio.get('/me')).data as Map<String, dynamic>);
+
+  Future<void> changePassword(String current, String next) => _call(() => _dio.post('/auth/password', data: {'current': current, 'password': next}));
+
   Future<void> registerDevice(String token, String platform) =>
       _call(() => _dio.post('/devices', data: {'fcmToken': token, 'platform': platform}));
 }
