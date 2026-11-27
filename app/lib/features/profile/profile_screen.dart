@@ -28,7 +28,9 @@ class ProfileBody extends ConsumerWidget {
     final look = ref.watch(appearanceProvider);
     Future<void> choose<T>(String title, Map<T, String> options, T current, void Function(T) set) async {
       final v = await showDialog<T>(context: context, builder: (d) => SimpleDialog(title: Text(title), children: [
-        for (final e in options.entries) RadioListTile<T>(value: e.key, groupValue: current, title: Text(e.value), onChanged: (x) => Navigator.pop(d, x)),
+        RadioGroup<T>(groupValue: current, onChanged: (x) => Navigator.pop(d, x), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          for (final e in options.entries) RadioListTile<T>(value: e.key, title: Text(e.value)),
+        ])),
       ]));
       if (v != null) set(v);
     }

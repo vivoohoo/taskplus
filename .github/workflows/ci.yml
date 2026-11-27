@@ -10,7 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm, cache-dependency-path: server/package-lock.json }
+        # 24 like the dev PC: the test containers library (undici 8) needs Node 22.15 or newer.
+        with: { node-version: 24, cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
       - run: npm run typecheck
       # Integration tests start SQL Server and Redis with Testcontainers (Docker is available on GitHub runners).
@@ -22,7 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        with: { channel: stable, cache: true }
+        # Pinned to the version the app is built with, so a new Flutter release can't break CI unannounced.
+        with: { flutter-version: 3.50.1, channel: stable, cache: true }
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze

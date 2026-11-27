@@ -25,8 +25,11 @@ final pushProvider = FutureProvider<void>((ref) async {
   await fm.requestPermission();
   final repo = ref.read(repositoryProvider);
   final platform = Platform.isIOS ? 'ios' : 'android';
+  // ponytail: getToken/onTokenRefresh still work; move to register()/onRegistered when the Firebase files arrive and push is tested.
+  // ignore: deprecated_member_use
   final token = await fm.getToken();
   if (token != null) await repo.registerDevice(token, platform);
+  // ignore: deprecated_member_use
   final refreshSub = fm.onTokenRefresh.listen((t) => repo.registerDevice(t, platform));
 
   void open(RemoteMessage m) {
