@@ -114,7 +114,7 @@ class _CaseListViewState extends ConsumerState<CaseListView> {
         groups.putIfAbsent(r.party.key, () => []).add(r);
       }
       for (final g in groups.values) {
-        children.add(g.length == 1 ? CaseRowTile(row: g.first, me: me) : PersonRow(rows: g, me: me));
+        children.add(g.length == 1 ? CaseRowTile(row: g.first, me: me) : PersonRow(rows: g, me: me, tab: q.tab));
       }
     } else {
       for (final r in l.rows) {
@@ -200,9 +200,9 @@ class CaseRowTile extends StatelessWidget {
 
 /// A person with several open tickets: their summary line; opens their chat.
 class PersonRow extends StatelessWidget {
-  const PersonRow({super.key, required this.rows, required this.me});
+  const PersonRow({super.key, required this.rows, required this.me, required this.tab});
   final List<CaseRow> rows;
-  final String me;
+  final String me, tab;
   @override
   Widget build(BuildContext context) {
     final o = context.o;
@@ -211,7 +211,7 @@ class PersonRow extends StatelessWidget {
     final last = rows.first;
     return InkWell(
       key: Key('person-${p.key}'),
-      onTap: () => context.push('/person/${Uri.encodeComponent(p.key)}', extra: p),
+      onTap: () => context.push('/person/${Uri.encodeComponent(p.key)}?tab=$tab', extra: p),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
         child: Row(children: [

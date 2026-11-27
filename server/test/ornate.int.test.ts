@@ -63,6 +63,7 @@ describe('tabs, chips and one chat per person', () => {
     await as('amit').post(`/v1/threads/${threadId}/messages`, { clientMsgId: randomUUID(), kind: 'text', bodyText: 'Looking now', replyToTaskId: taskId });
     const tl = (await as('riya').get(`/v1/timeline?party=u:${id('amit')}`)).body;
     expect(tl.party.name).toBe('Amit Vora');
+    expect((await as('riya').get(`/v1/timeline?party=u:${id('amit')}&tab=queue`)).body.items).toHaveLength(0);
     expect(tl.items.map((i: { message: { bodyText: string } }) => i.message.bodyText)).toEqual(expect.arrayContaining(['Ornate report export is slow', 'Looking now']));
   });
 

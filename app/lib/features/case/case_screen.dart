@@ -100,7 +100,7 @@ class _CaseScreenState extends ConsumerState<CaseScreen> {
               if (!const ['Rejected', 'Cancelled', 'Transferred'].contains(t.status))
                 Composer(
                   threadId: t.threadId, onSend: (d) => outbox.add(d), replyTo: t, replyOnly: true,
-                  hint: t.isNote ? 'Add to your note' : 'Message about this task, / for sub-task',
+                  hint: t.isNote ? 'Add to your note' : t.actions.contains('hand_off') ? 'Message, / for sub-task' : 'Message about this task',
                   subtaskOf: t.actions.contains('hand_off') ? t : null,
                   onSubtask: (d, name) async {
                     try {

@@ -53,8 +53,8 @@ class Repository {
         final d = (await _dio.get('/cases/counts')).data;
         return (my: (d['my'] as num).toInt(), queue: (d['queue'] as num).toInt(), all: (d['all'] as num).toInt());
       });
-  Future<({Party? party, List<ChatItem> items})> timeline(String party) => _call(() async {
-        final d = (await _dio.get('/timeline', queryParameters: {'party': party})).data;
+  Future<({Party? party, List<ChatItem> items})> timeline(String party, {String? tab}) => _call(() async {
+        final d = (await _dio.get('/timeline', queryParameters: {'party': party, 'tab': ?tab})).data;
         return (
           party: d['party'] == null ? null : Party.fromJson(d['party'] as Map<String, dynamic>),
           items: [for (final i in d['items'] as List) ChatItem.fromJson(i as Map<String, dynamic>)],

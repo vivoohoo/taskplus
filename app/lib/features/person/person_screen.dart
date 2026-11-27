@@ -15,14 +15,19 @@ import '../ornate/bubble.dart';
 import '../ornate/widgets.dart';
 import '../task_card/task_card.dart';
 
-final timelineProvider = FutureProvider.autoDispose.family((ref, String party) => ref.watch(repositoryProvider).timeline(party));
+/// Key: `party` or `party|tab` (opened from a tab: that tab's open tasks, as the row counted them).
+final timelineProvider = FutureProvider.autoDispose.family((ref, String key) {
+  final [party, ...tab] = key.split('|');
+  return ref.watch(repositoryProvider).timeline(party, tab: tab.firstOrNull);
+});
 final _threadProvider = FutureProvider.autoDispose.family((ref, String party) => ref.watch(repositoryProvider).threadFor(party));
 
 /// One person's chat (Ornate + Task Plus): every task between you as a timeline of cards, the summary line,
 /// All / Not accepted / Accepted, and the chat box to send them a new task.
 class PersonScreen extends ConsumerStatefulWidget {
-  const PersonScreen({super.key, required this.partyKey, this.party});
+  const PersonScreen({super.key, required this.partyKey, this.party, this.tab});
   final String partyKey;
+  final String? tab;
   final Party? party;
   @override
   ConsumerState<PersonScreen> createState() => _PersonScreenState();
@@ -30,6 +35,7 @@ class PersonScreen extends ConsumerStatefulWidget {
 
 class _PersonScreenState extends ConsumerState<PersonScreen> {
   String _filter = 'All';
+  String get _key => widget.tab == null ? widget.partyKey : '${widget.partyKey}|${widget.tab}';
   StreamSubscription? _events;
 
   @override
@@ -37,9 +43,9 @@ class _PersonScreenState extends ConsumerState<PersonScreen> {
     super.initState();
     ref.listenManual(realtimeProvider, (_, next) {
       _events?.cancel();
-      _events = next.value?.events.listen((_) => ref.invalidate(timelineProvider(widget.partyKey)));
+      _events = next.value?.events.listen((_) => ref.invalidate(timelineProvider(_key)));
     }, fireImmediately: true);
-    ref.listenManual(sentItemsProvider, (_, _) => ref.invalidate(timelineProvider(widget.partyKey)));
+    ref.listenManual(sentItemsProvider, (_, _) => ref.invalidate(timelineProvider(_key)));
   }
 
   @override
@@ -52,7 +58,7 @@ class _PersonScreenState extends ConsumerState<PersonScreen> {
   Widget build(BuildContext context) {
     final o = context.o;
     final me = ref.watch(authProvider).value?.id ?? '';
-    final tl = ref.watch(timelineProvider(widget.partyKey));
+    final tl = ref.watch(timelineProvider(_key));
     final thread = ref.watch(_threadProvider(widget.partyKey)).value;
     final outbox = ref.watch(outboxProvider);
     final names = {for (final p in ref.watch(peopleProvider).value ?? const <Member>[]) p.id: p.name};
@@ -145,7 +151,7 @@ class _PersonScreenState extends ConsumerState<PersonScreen> {
       bubble,
       ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        child: TaskCard(item: i, directRecipient: !out, onTask: (_) => ref.invalidate(timelineProvider(widget.partyKey))),
+        child: TaskCard(item: i, directRecipient: !out, onTask: (_) => ref.invalidate(timelineProvider(_key))),
       ),
     ]);
   }

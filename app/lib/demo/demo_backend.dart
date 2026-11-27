@@ -38,7 +38,7 @@ class _Err implements Exception {
   final String code, message;
 }
 
-const _active = ['Accepted', 'InProgress', 'WaitingInfo', 'Blocked'];
+const _active = ['Accepted', 'InProgress', 'WaitingInfo', 'WaitingDept', 'Blocked'];
 const _finished = ['Closed', 'Rejected', 'Transferred', 'Cancelled'];
 const _acceptMin = {'Critical': 15, 'High': 30, 'Medium': 120, 'Low': 240};
 const _completeH = {'Critical': 4, 'High': 9, 'Medium': 27, 'Low': 63};
@@ -54,6 +54,7 @@ class DemoBackend {
   final tasks = <Map<String, dynamic>>[];
   final events = <Map<String, dynamic>>[];
   final suggestions = <Map<String, dynamic>>[];
+  final notes = <Map<String, dynamic>>[]; // the bell
   final holidays = <Map<String, dynamic>>[
     {'day': '2027-01-26', 'name': 'Republic Day'}, {'day': '2026-12-25', 'name': 'Christmas'},
   ];
@@ -124,6 +125,8 @@ class DemoBackend {
     as(kunal, f, 'verify');
     as(kunal, f, 'close', {'resolution': 'Installed and tested with the customer.', 'customerInformed': 'yes'});
     send(amit, {'targetType': 'department', 'targetId': hr}, 'Please update my bank account for salary credit from next month.', const Duration(hours: 1));
+    send(riya, {'targetType': 'self'}, 'Call Shree Ganesh Textiles back on Monday about the renewal.', const Duration(minutes: 20));
+    b.notes.clear();
     return b;
   }
 
@@ -170,7 +173,7 @@ class DemoBackend {
   }
 
   bool canSee(Map<String, dynamic> me, Map<String, dynamic> th) =>
-      th['type'] == 'direct' ? th['a'] == me['id'] || th['b'] == me['id'] : th['requester'] == me['id'] || th['dept'] == me['dept'];
+      th['type'] == 'direct' ? th['a'] == me['id'] || th['b'] == me['id'] : th['type'] == 'self' ? th['requester'] == me['id'] : th['requester'] == me['id'] || th['dept'] == me['dept'];
 
   // ---------------------------------------------------------------- the "AI" reader (demo only)
   Map<String, dynamic> structure(String text, List<String> modules, Map<String, String> overrides) {
@@ -198,6 +201,10 @@ class DemoBackend {
   // ---------------------------------------------------------------- threads and messages
   Map<String, dynamic> _open(Map<String, dynamic> me, Map<String, dynamic> body) {
     final type = body['targetType'], target = body['targetId'] as String?;
+    if (type == 'self') {
+      return threads.where((t) => t['type'] == 'self' && t['requester'] == me['id']).firstOrNull
+          ?? (threads..add({'id': _id('TH'), 'type': 'self', 'requester': me['id'], 'dept': null, 'team': null, 'last': null})).last;
+    }
     if (type == 'user') {
       if (target == me['id']) throw _Err(400, 'BAD_REQUEST', 'You cannot start a chat with yourself.');
       _user(target);
@@ -230,16 +237,33 @@ class DemoBackend {
       }
       return _item(m, me['id'] as String);
     }
-    final dept = th['dept'] as String? ?? _user(th['a'] == me['id'] ? th['b'] : th['a'])['dept'] as String?;
+    final parent = body['parentTaskId'] == null ? null : _task(body['parentTaskId'] as String);
+    if (parent != null) {
+      if (parent['assignee'] != me['id'] || !['Accepted', 'InProgress'].contains(parent['status'])) throw _Err(403, 'FORBIDDEN', 'Only the person working on the task can hand off part of it.');
+      if (th['type'] != 'department' || th['dept'] == parent['dept']) throw _Err(400, 'BAD_REQUEST', 'Choose another department.');
+    }
+    final note = th['type'] == 'self';
+    final dept = note ? me['dept'] as String? : th['dept'] as String? ?? _user(th['a'] == me['id'] ? th['b'] : th['a'])['dept'] as String?;
     final overrides = Map<String, String>.from((body['overrides'] as Map?) ?? const {});
     final s = structure(text ?? '', List<String>.from(_dept(dept)['modules'] as List), overrides);
-    final t = {'id': _id('TK'), 'message': m['id'], 'thread': th['id'], 'ticketNo': 'ORN-SS-2627-${(++_ticket).toString().padLeft(5, '0')}',
+    final ticketNo = parent != null ? '${parent['ticketNo']}/T${tasks.where((x) => x['parent'] == parent['id']).length + 2}' : 'ORN-SS-2627-${(++_ticket).toString().padLeft(5, '0')}';
+    final t = {'id': _id('TK'), 'message': m['id'], 'thread': th['id'], 'ticketNo': ticketNo, 'parent': parent?['id'], 'note': note,
       ...s, 'status': 'Open', 'assignee': null, 'tagged': body['taggedUserId'], 'dept': th['dept'], 'team': th['team'], 'aiStatus': 'done',
       'clock': 'not started', 'usedMs': 0, 'due': when.add(Duration(minutes: _acceptMin[s['priority']]!)).toIso8601String(), 'escalation': null,
       'escalatedTo': <String>[], 'reassignAsker': null, 'request': null, 'resolution': null, 'informed': null, 'closedAt': null, 'completedAt': null,
       'created': when.toIso8601String(), 'updated': when.toIso8601String()};
+    if (note) t.addAll({'status': 'InProgress', 'assignee': me['id'], 'due': null, 'dept': null});
     tasks.add(t);
     _event(t, me['id'] as String, 'created', {}, at: when);
+    if (parent != null) {
+      _set(parent, {'status': 'WaitingDept', 'clock': 'paused'});
+      _event(parent, me['id'] as String, 'handed_off', {'subject': text});
+    }
+    if (!note) {
+      final to = th['type'] == 'direct' ? [th['a'] == me['id'] ? th['b'] : th['a']]
+          : [for (final u in users) if (u['dept'] == th['dept'] && u['id'] != me['id'] && (th['team'] == null || u['team'] == th['team'] || teamsLedBy(u).contains(th['team']))) u['id']];
+      _notify(to.cast<String>(), t, '${me['name']} · ${t['subject']}', at: when);
+    }
     return _item(m, me['id'] as String);
   }
 
@@ -254,9 +278,9 @@ class DemoBackend {
     'subject': t['subject'], 'module': t['module'], 'customerName': t['customerName'], 'customerPhone': t['customerPhone'],
     'customerLocation': t['customerLocation'], 'licenseNo': t['licenseNo'], 'priority': t['priority'], 'details': t['details'], 'status': t['status'],
     'assigneeId': t['assignee'], 'taggedUserId': t['tagged'], 'departmentId': t['dept'], 'teamId': t['team'], 'aiStatus': t['aiStatus'], 'warnings': [],
-    'dueAt': t['clock'] == 'paused' || _finished.contains(t['status']) || t['status'] == 'Completed' || t['status'] == 'Verified' ? null : t['due'],
+    'dueAt': t['due'] == null || t['clock'] == 'paused' || _finished.contains(t['status']) || t['status'] == 'Completed' || t['status'] == 'Verified' ? null : t['due'],
     'clock': {'state': t['clock'], 'usedMs': t['usedMs']}, 'escalationLevel': t['escalation'], 'escalatedTo': t['escalatedTo'],
-    'reassignRequestedBy': t['reassignAsker'], 'request': t['request'], 'resolution': t['resolution'], 'customerInformed': t['informed'],
+    'reassignRequestedBy': t['reassignAsker'], 'request': t['request'], 'parentTaskId': t['parent'], 'isNote': t['note'] == true, 'resolution': t['resolution'], 'customerInformed': t['informed'],
     'closedAt': t['closedAt'], 'createdAt': t['created'], 'updatedAt': t['updated'], 'actions': available(_user(viewer), t)};
 
   Map<String, dynamic> _item(Map<String, dynamic> m, String viewer) {
@@ -267,6 +291,10 @@ class DemoBackend {
   // ---------------------------------------------------------------- workflow (mirrors server/src/workflow/engine.ts)
   List<String> available(Map<String, dynamic> me, Map<String, dynamic> t) {
     final th = _thread(t['thread'] as String), sender = _msg(t['message'] as String)['sender'];
+    if (th['type'] == 'self') {
+      if (sender != me['id']) return [];
+      return t['status'] != 'Closed' ? ['close', 'edit'] : ['reopen'];
+    }
     final requester = sender == me['id'], assignee = t['assignee'] == me['id'], staff = me['role'] == 'staff';
     final myTeams = teamsLedBy(me);
     final head = me['role'] == 'dept_head' && me['dept'] == t['dept'];
@@ -282,10 +310,13 @@ class DemoBackend {
       if (recipient && t['tagged'] == me['id']) out.add('decline');
       if (recipient && staff && t['request'] == null) out.addAll(['request_reject', 'request_transfer']);
       if (lead) out.addAll(['reassign', 'reject', 'transfer', 'change_priority']);
-      if (requester) out.addAll(['cancel', 'change_priority']);
+      if (requester) out.addAll(['cancel', 'change_priority', 'edit']);
     }
     if (_active.contains(s)) {
-      if (assignee) {
+      if (assignee && s == 'WaitingDept') {
+        out.add('change_priority');
+      } else if (assignee) {
+        if (s == 'Accepted' || s == 'InProgress') out.add('hand_off');
         if (s == 'Accepted') out.add('in_progress');
         out.addAll(['complete', 'change_priority']);
         if (s != 'WaitingInfo') out.add('ask_requester');
@@ -294,6 +325,7 @@ class DemoBackend {
         else { out.addAll(['reject', 'transfer']); }
       }
       if (lead) out.addAll(['reassign', 'reject', 'transfer', 'change_priority']);
+      if (s == 'WaitingDept' && me['role'] == 'dept_head' && me['dept'] == t['dept']) out.add('complete_cancel_subs');
     }
     if (requester) {
       if (s == 'Completed') out.addAll(['verify', 'reopen']);
@@ -305,7 +337,8 @@ class DemoBackend {
       if (t['escalation'] != null && (t['escalatedTo'] as List).contains(me['id'])) out.add('attend');
     }
     const all = ['accept', 'decline', 'in_progress', 'ask_reassign', 'keep', 'reassign', 'complete', 'verify', 'close', 'reopen', 'ask_requester', 'block',
-      'unblock', 'request_reject', 'request_transfer', 'approve_request', 'refuse_request', 'reject', 'transfer', 'escalate', 'attend', 'change_priority', 'cancel'];
+      'unblock', 'request_reject', 'request_transfer', 'approve_request', 'refuse_request', 'reject', 'transfer', 'escalate', 'attend', 'change_priority', 'cancel',
+      'edit', 'hand_off', 'complete_cancel_subs'];
     return all.where(out.contains).toList();
   }
 
@@ -332,7 +365,28 @@ class DemoBackend {
     String need(String k) { final v = (body[k] as String?)?.trim() ?? ''; if (v.isEmpty) throw _Err(400, 'BAD_REQUEST', 'Add a short reason.'); return v; }
     final n = now();
     final sender = _msg(t['message'] as String)['sender'] as String;
+    final note = _thread(t['thread'] as String)['type'] == 'self';
     switch (a) {
+      case 'edit':
+        final text = (body['text'] as String?)?.trim() ?? '';
+        if (text.isEmpty) throw _Err(400, 'BAD_REQUEST', 'Type the message.');
+        _msg(t['message'] as String)['bodyText'] = text;
+        if (!note) {
+          final s = structure(text, List<String>.from(_dept(t['dept'] ?? _user(sender)['dept'])['modules'] as List), const {});
+          _set(t, {for (final k in ['subject', 'module', 'customerName', 'customerPhone', 'customerLocation', 'licenseNo', 'priority', 'details']) k: s[k]});
+        }
+      case 'close' when note:
+        _set(t, {'status': 'Closed', 'closedAt': n.toIso8601String()});
+      case 'reopen' when note:
+        _set(t, {'status': 'InProgress', 'closedAt': null});
+      case 'hand_off':
+        throw _Err(400, 'BAD_REQUEST', 'Type /subtask in the chat and pick a department.');
+      case 'complete_cancel_subs':
+        need('remarks');
+        for (final s in tasks.where((x) => x['parent'] == t['id'] && !['Completed', 'Verified', ..._finished].contains(x['status']))) {
+          _set(s, {'status': 'Cancelled', 'closedAt': n.toIso8601String()});
+        }
+        _set(t, {'status': 'Completed', 'clock': 'stopped', 'completedAt': n.toIso8601String()});
       case 'accept':
         _set(t, {'status': 'Accepted', 'assignee': me['id'], 'clock': 'running', 'due': n.add(Duration(hours: _completeH[t['priority']]!)).toIso8601String()});
       case 'decline':
@@ -387,7 +441,24 @@ class DemoBackend {
       case 'cancel':
         _set(t, {'status': 'Cancelled', 'closedAt': n.toIso8601String()});
     }
-    _event(t, me['id'] as String, a == 'accept' ? 'accepted' : a == 'complete' ? 'completed' : a == 'reject' ? 'rejected' : a, Map<String, dynamic>.from(body));
+    final type = const {'accept': 'accepted', 'complete': 'completed', 'reject': 'rejected', 'verify': 'verified', 'close': 'closed', 'reopen': 'reopened',
+      'ask_requester': 'question', 'block': 'blocked', 'unblock': 'unblocked', 'escalate': 'escalated', 'attend': 'attended', 'cancel': 'cancelled',
+      'change_priority': 'priority_changed', 'edit': 'edited', 'decline': 'declined', 'ask_reassign': 'reassign_asked', 'keep': 'reassign_refused',
+      'request_reject': 'request', 'request_transfer': 'request', 'refuse_request': 'request_refused', 'transfer': 'transferred', 'in_progress': 'status_changed',
+      'complete_cancel_subs': 'subs_cancelled'}[a] ?? a;
+    _event(t, me['id'] as String, type, {...Map<String, dynamic>.from(body), if (a == 'in_progress') 'to': 'InProgress'});
+    // A sub-task that ended moves its parent on (Ornate).
+    if (t['parent'] != null && ['Completed', 'Rejected', 'Cancelled', 'Transferred'].contains(t['status'])) {
+      final p = _task(t['parent'] as String);
+      _event(p, me['id'] as String, 'subtask_done', {'subject': t['subject']});
+      if (p['status'] == 'WaitingDept' && !tasks.any((x) => x['parent'] == p['id'] && !['Completed', 'Verified', ..._finished].contains(x['status']))) {
+        _set(p, {'status': 'InProgress', 'clock': 'running'});
+      }
+    }
+    if (!note) {
+      final who = sender == me['id'] ? [?t['assignee'] as String?] : [sender];
+      _notify(who.where((x) => x != me['id']).toList(), t, '${t['subject']} · ${doneWord(type)} by ${me['name']}');
+    }
     if (sender == me['id']) return;
   }
 
@@ -398,6 +469,93 @@ class DemoBackend {
     final requester = _user(orig['sender'] as String);
     final th = _open(requester, {'targetType': 'department', 'targetId': deptId});
     _create(requester, th, {'kind': 'text', 'bodyText': orig['bodyText'], 'clientMsgId': _id('moved')});
+  }
+
+  String doneWord(String type) => type.replaceAll('_', ' ');
+  void _notify(List<String> to, Map<String, dynamic> t, String text, {DateTime? at}) {
+    for (final u in to.toSet()) {
+      notes.add({'id': _id('N'), 'user': u, 'task': t['id'], 'text': text, 'read': false, 'at': (at ?? now()).toIso8601String()});
+    }
+  }
+
+  // ---------------------------------------------------------------- Ornate lists (mirrors server/src/modules/cases/routes.ts)
+  bool _note(Map<String, dynamic> t) => t['note'] == true;
+  String _sender(Map<String, dynamic> t) => _msg(t['message'] as String)['sender'] as String;
+  bool _recipient(Map<String, dynamic> me, Map<String, dynamic> t) {
+    final th = _thread(t['thread'] as String);
+    if (_sender(t) == me['id']) return false;
+    if (th['type'] == 'direct') return th['a'] == me['id'] || th['b'] == me['id'];
+    return th['type'] == 'department' && me['dept'] == t['dept'] && (t['team'] == null || me['team'] == t['team'] || teamsLedBy(me).contains(t['team']));
+  }
+  bool _leadFor(Map<String, dynamic> me, Map<String, dynamic> t) => (me['role'] == 'dept_head' && me['dept'] == t['dept'])
+      || (t['assignee'] != null && manages(me, t['assignee'] as String)) || (t['team'] != null && teamsLedBy(me).contains(t['team']));
+  bool _canView(Map<String, dynamic> me, Map<String, dynamic> t) {
+    if (_note(t)) return _sender(t) == me['id'];
+    if (_sender(t) == me['id'] || t['assignee'] == me['id'] || _leadFor(me, t)) return true;
+    final th = _thread(t['thread'] as String);
+    if (th['type'] == 'direct' && (th['a'] == me['id'] || th['b'] == me['id'])) return true;
+    if (teamsLedBy(me).contains(_user(_sender(t))['team'])) return true;
+    return t['status'] == 'Open' && _recipient(me, t);
+  }
+  bool _inMy(Map<String, dynamic> me, Map<String, dynamic> t) {
+    final s = t['status'] as String;
+    if (_note(t)) return _sender(t) == me['id'] && s != 'Closed';
+    if (t['assignee'] == me['id'] && (_active.contains(s) || s == 'Completed')) return true;
+    if (s == 'Open' && _recipient(me, t) && (t['tagged'] == me['id'] || _thread(t['thread'] as String)['type'] == 'direct')) return true;
+    if (_leadFor(me, t) && !_finished.contains(s) && (t['request'] != null || t['reassignAsker'] != null || (t['escalatedTo'] as List).contains(me['id']))) return true;
+    return _sender(t) == me['id'] && (s == 'Open' || _active.contains(s) || s == 'Completed' || s == 'Verified');
+  }
+  bool _inQueue(Map<String, dynamic> me, Map<String, dynamic> t) => !_note(t) && t['status'] == 'Open'
+      && (_recipient(me, t) || (me['role'] == 'dept_head' && me['dept'] == t['dept']) || (t['team'] != null && teamsLedBy(me).contains(t['team']))) && !_inMy(me, t);
+  Map<String, dynamic> _party(Map<String, dynamic> me, Map<String, dynamic> t) {
+    if (_note(t)) return {'key': 'self', 'name': 'Private notes', 'sub': 'Only you'};
+    String dn(Object? id) => depts.where((d) => d['id'] == id).firstOrNull?['name'] as String? ?? '';
+    final s = _sender(t);
+    if (s != me['id']) return {'key': 'u:$s', 'name': _name(s), 'sub': dn(_user(s)['dept'])};
+    final th = _thread(t['thread'] as String);
+    final who = t['assignee'] ?? t['tagged'] ?? (th['type'] == 'direct' ? (th['a'] == me['id'] ? th['b'] : th['a']) : null);
+    if (who != null) return {'key': 'u:$who', 'name': _name(who as String), 'sub': dn(_user(who)['dept'])};
+    if (t['team'] != null) return {'key': 't:${t['team']}', 'name': '${_team(t['team'])['name']} team', 'sub': dn(t['dept'])};
+    return {'key': 'd:${t['dept']}', 'name': '${dn(t['dept'])} Team Leads', 'sub': dn(t['dept'])};
+  }
+  Map<String, dynamic> _row(Map<String, dynamic> me, Map<String, dynamic> t) {
+    final replies = messages.where((m) => m['replyTo'] == t['id']).toList();
+    final last = replies.isEmpty ? _msg(t['message'] as String) : replies.last;
+    final by = last['sender'] == me['id'] ? 'You' : '${_name(last['sender'] as String)}'.split(' ').first;
+    return {..._item(_msg(t['message'] as String), me['id'] as String), 'party': _party(me, t), 'overdue': !_note(t) && _overdue(t), 'requesterId': _sender(t),
+      'last': {'text': '$by: ${last['bodyText'] ?? 'Voice message'}', 'at': last['at']}};
+  }
+  Map<String, dynamic> _cases(Map<String, dynamic> me, Map<String, String> q) {
+    final tab = q['tab'] ?? 'my', chip = q['chip'] ?? 'All', words = (q['q'] ?? '').toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    const done = ['Verified', 'Closed', 'Rejected', 'Cancelled'];
+    final all = tasks.where((t) => _canView(me, t)).toList();
+    final finished = chip == 'Verified / Closed';
+    final source = finished
+        ? (tab == 'my' ? all.where((t) => done.contains(t['status']) && (t['assignee'] == me['id'] || _sender(t) == me['id'])) : all)
+        : all.where((t) => tab == 'my' ? _inMy(me, t) : tab == 'queue' ? _inQueue(me, t) : true);
+    final list = source.where((t) {
+      final s = t['status'] as String;
+      final ok = chip == 'All' || finished ? (!finished || done.contains(s))
+          : chip == 'Active' ? s == 'Open' || _active.contains(s)
+          : chip == 'To Verify' ? s == 'Completed' && _sender(t) == me['id']
+          : chip == 'Sent by me' ? _sender(t) == me['id']
+          : (!_note(t) && _overdue(t)) || t['escalation'] != null;
+      if (!ok) return false;
+      if (q['dept'] != null && t['dept'] != q['dept'] && _user(_sender(t))['dept'] != q['dept']) return false;
+      if (q['status'] != null && s != q['status']) return false;
+      if (q['priority'] != null && t['priority'] != q['priority']) return false;
+      if (q['requester'] != null && _sender(t) != q['requester']) return false;
+      if (q['owner'] != null && t['assignee'] != q['owner']) return false;
+      if (q['type'] != null && (q['type'] == 'Self') != _note(t)) return false;
+      if (q['openOnly'] == 'true' && const ['Closed', 'Rejected', 'Cancelled', 'Transferred'].contains(s)) return false;
+      final hay = '${t['ticketNo']} ${t['subject']} ${t['details']} ${t['customerName']} ${_name(_sender(t))} ${_name(t['assignee'] as String?)}'.toLowerCase();
+      return words.every(hay.contains);
+    }).map((t) => _row(me, t)).toList()..sort((a, b) => ('${(b['last'] as Map)['at']}').compareTo('${(a['last'] as Map)['at']}'));
+    final lead = me['role'] != 'staff' && tab == 'queue';
+    final mine = tasks.where((t) => t['dept'] == me['dept'] && !_note(t));
+    return {'items': list, 'grouped': !finished && words.isEmpty,
+      'stats': lead ? {'waiting': mine.where((t) => t['status'] == 'Open').length, 'inProgress': mine.where((t) => _active.contains(t['status'])).length,
+        'overdue': mine.where(_overdue).length} : null};
   }
 
   // ---------------------------------------------------------------- HTTP surface
@@ -466,8 +624,42 @@ class DemoBackend {
         return {'items': [for (final t in list) _item(_msg(t['message'] as String), id)], 'nextCursor': null};
       case ('GET', ['tasks', final tid, 'history']):
         final t = _task(tid);
+        final p = t['parent'] == null ? null : _task(t['parent'] as String);
         return {'events': [for (final e in events.where((e) => e['task'] == tid)) {'type': e['type'], 'by': _name(e['by'] as String?) ?? 'System', 'at': e['at'], 'payload': e['payload']}],
-          'files': [], 'ticketNo': t['ticketNo']};
+          'files': [], 'ticketNo': t['ticketNo'],
+          'replies': [for (final m in messages.where((m) => m['replyTo'] == tid)) _item(m, id)],
+          'subTasks': [for (final s in tasks.where((x) => x['parent'] == tid)) {'id': s['id'], 'ticketNo': s['ticketNo'], 'subject': s['subject'], 'status': s['status'], 'threadId': s['thread'], 'department': _dept(s['dept'])['name']}],
+          'parent': p == null ? null : {'id': p['id'], 'ticketNo': p['ticketNo'], 'subject': p['subject'], 'status': p['status'], 'threadId': p['thread']}};
+      case ('GET', ['cases']):
+        return _cases(me, q);
+      case ('GET', ['cases', 'counts']):
+        final all = tasks.where((t) => _canView(me, t)).toList();
+        return {'my': all.where((t) => _inMy(me, t)).length, 'queue': all.where((t) => _inQueue(me, t)).length, 'all': all.length};
+      case ('GET', ['cases', final tid]):
+        final t = _task(tid);
+        if (!_canView(me, t) && !canSee(me, _thread(t['thread'] as String))) throw _Err(403, 'FORBIDDEN', 'You do not have access to this.');
+        return _row(me, t);
+      case ('GET', ['timeline']):
+        final key = q['party'] ?? '';
+        final tab = q['tab'];
+        bool inTab(Map<String, dynamic> t) => tab == null || const ['Closed', 'Rejected', 'Cancelled', 'Transferred'].contains(t['status'])
+            || (tab == 'my' ? _inMy(me, t) : tab == 'queue' ? _inQueue(me, t) : true);
+        final mine = tasks.where((t) => _canView(me, t) && _party(me, t)['key'] == key && inTab(t)).toList();
+        final ids = mine.map((t) => t['id']).toSet();
+        final ms = [...mine.map((t) => _msg(t['message'] as String)), ...messages.where((m) => ids.contains(m['replyTo']))]
+          ..sort((a, b) => (a['at'] as String).compareTo(b['at'] as String));
+        return {'party': mine.isEmpty ? null : _party(me, mine.first), 'items': [for (final m in ms) _item(m, id)]};
+      case ('GET', ['notifications']):
+        final mineN = notes.where((n) => n['user'] == id).toList().reversed.toList();
+        return {'unread': mineN.where((n) => n['read'] != true).length, 'items': [for (final n in mineN) {'id': n['id'], 'taskId': n['task'],
+          'threadId': _task(n['task'] as String)['thread'], 'ticketNo': _task(n['task'] as String)['ticketNo'], 'subject': _task(n['task'] as String)['subject'],
+          'text': n['text'], 'read': n['read'] == true, 'at': n['at']}]};
+      case ('POST', ['notifications', 'read-all']):
+        for (final n in notes.where((n) => n['user'] == id)) { n['read'] = true; }
+        return {'ok': true};
+      case ('POST', ['notifications', final nid, 'read']):
+        notes.firstWhere((n) => n['id'] == nid && n['user'] == id, orElse: () => throw _Err(404, 'NOT_FOUND', 'Not found.'))['read'] = true;
+        return {'ok': true};
       case ('GET', ['tasks', final tid]):
         return _item(_msg(_task(tid)['message'] as String), id);
       case ('POST', ['tasks', final tid, 'actions', final a]):
@@ -549,7 +741,9 @@ class DemoBackend {
 
   Map<String, dynamic> _threadJson(Map<String, dynamic> th, Map<String, dynamic> me) {
     String title, sub;
-    if (th['type'] == 'direct') {
+    if (th['type'] == 'self') {
+      title = 'Private notes'; sub = 'Only you';
+    } else if (th['type'] == 'direct') {
       final o = _user(th['a'] == me['id'] ? th['b'] : th['a']);
       title = o['name'] as String; sub = _dept(o['dept'])['name'] as String;
     } else if (th['requester'] == me['id']) {

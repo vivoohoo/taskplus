@@ -28,6 +28,15 @@ void main() {
       for (final d in await repo.departments()) { await repo.department(d.id); }
       await repo.notificationSettings(); await repo.holidays(); await repo.suggestions(); await repo.customers();
       if (p['role'] != 'staff') await repo.team();
+      // Ornate lists, chats, case pages and the bell.
+      for (final tab in ['my', 'queue', 'all']) {
+        for (final chip in ['All', 'Active', 'To Verify', 'Sent by me', 'Overdue/Escalated', 'Verified / Closed']) {
+          final l = await repo.cases(CaseQuery(tab: tab, chip: chip));
+          for (final r in l.rows) { await repo.caseOf(r.task.id); await repo.timeline(r.party.key); }
+        }
+      }
+      await repo.caseCounts();
+      await repo.notifications();
     }
   });
 
@@ -55,5 +64,36 @@ void main() {
     expect((await kunal.action(id, 'complete', {'remarks': 'Fixed'})).status, 'Completed');
     expect((await riya.action(id, 'verify')).status, 'Verified');
     expect((await riya.action(id, 'close', {'resolution': 'Done', 'customerInformed': 'yes'})).status, 'Closed');
+  });
+
+  test('private notes, /subtask and the bell', () async {
+    final api = DemoApi();
+    final b = api.backend;
+    Future<Repository> as(String phone) async {
+      final tokens = MemoryTokenStore();
+      final client = ApiClient(baseUrl: 'https://demo.local', tokens: tokens, onSignedOut: () {}, adapter: api);
+      final r = await client.dio.post('/auth/login', data: {'phone': phone, 'password': 'x'});
+      await tokens.save(r.data['accessToken'] as String, r.data['refreshToken'] as String);
+      return Repository(client, absolute: (s) => s);
+    }
+    final riya = await as('9800000002'), kunal = await as('9800000011'), karan = await as('9800000003');
+    final notes = await riya.threadFor('self');
+    final n = await riya.send(Draft(clientMsgId: 'n1', threadId: notes.id, kind: 'text', bodyText: 'Remember the renewal'));
+    expect(n.task!.isNote, true);
+    expect((await riya.caseOf(n.task!.id)).party.key, 'self');
+
+    final dev = b.depts.firstWhere((d) => d['name'] == 'Development')['id'] as String;
+    final sup = b.depts.firstWhere((d) => d['name'] == 'Support')['id'] as String;
+    final p = await riya.send(Draft(clientMsgId: 'p1', threadId: (await riya.openThread('department', dev)).id, kind: 'text', bodyText: 'New server for Ornate'));
+    expect((await kunal.notifications()).unread, greaterThan(0));
+    await kunal.accept(p.task!.id);
+    expect((await kunal.task(p.task!.id)).task!.actions, contains('hand_off'));
+    final sub = await kunal.send(Draft(clientMsgId: 's1', threadId: (await kunal.openThread('department', sup)).id, kind: 'text', bodyText: 'Install SQL Server', parentTaskId: p.task!.id));
+    expect(sub.task!.ticketNo, '${p.task!.ticketNo}/T2');
+    expect((await kunal.task(p.task!.id)).task!.status, 'WaitingDept');
+    await karan.accept(sub.task!.id);
+    await karan.action(sub.task!.id, 'complete', {'remarks': 'Installed'});
+    expect((await kunal.task(p.task!.id)).task!.status, 'InProgress');
+    expect((await riya.cases(const CaseQuery(tab: 'my'))).rows.any((r) => r.party.key == 'u:${b.users.firstWhere((u) => u['name'] == 'Kunal Mehta')['id']}'), true);
   });
 }

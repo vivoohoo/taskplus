@@ -90,9 +90,7 @@ class OChip extends StatelessWidget {
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: small ? 6 : 4),
           child: Container(
-            height: small ? 32 : 36,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            alignment: Alignment.center,
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: small ? 7 : 9),
             decoration: BoxDecoration(color: on ? o.chipOn : o.chip, borderRadius: BorderRadius.circular(18)),
             child: Text(label, style: TextStyle(fontSize: small ? 13 : 14, color: on ? o.chipOnText : o.muted, fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
           ),

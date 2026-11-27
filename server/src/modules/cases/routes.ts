@@ -186,10 +186,12 @@ export async function caseRoutes(app: FastifyInstance) {
 
   /** One person's chat: every task between you and them (open and finished) with its replies, oldest first. */
   app.get('/timeline', async (req) => {
-    const { party } = parse(z.object({ party: z.string().regex(/^(self|[udt]:[0-9A-Fa-f-]{36})$/, 'Unknown chat.') }), req.query);
+    const { party, tab } = parse(z.object({ party: z.string().regex(/^(self|[udt]:[0-9A-Fa-f-]{36})$/, 'Unknown chat.'), tab: z.enum(TABS).optional() }), req.query);
     const me = await currentUser(db, req.userId);
     const r = rules(await loadOrg(db), me, Date.now());
-    const mine = (await rows()).filter((x) => r.canView(x) && r.party(x).key.toUpperCase() === party.toUpperCase());
+    // Opened from a tab: its open tasks are that tab's (as the row's summary counted them); finished ones stay as history.
+    const inTab = (x: Row) => !tab || !OPEN_ROW(x.t.status) || (tab === 'my' ? r.inMyTasks(x) : tab === 'queue' ? r.inQueue(x) : true);
+    const mine = (await rows()).filter((x) => r.canView(x) && r.party(x).key.toUpperCase() === party.toUpperCase() && inTab(x));
     const replies = mine.length ? await db.selectFrom('messages').selectAll().where('reply_to_task_id', 'in', mine.map((x) => x.t.id)).execute() : [];
     const msgs = [...mine.map((x) => x.m), ...replies].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     const first = mine[0];
