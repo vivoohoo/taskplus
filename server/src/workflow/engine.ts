@@ -60,6 +60,9 @@ export function available(c: Ctx): Action[] {
     return t.closed_at && now - new Date(t.closed_at).getTime() <= REOPEN_WINDOW_MS ? ['reopen'] : [];
   }
   if (FINISHED.includes(t.status) && t.status !== 'Closed') return [];
+  // Owner decision 27 Nov: the sender sees a one-line statement, never cards or buttons. Completed work verifies and
+  // closes itself on the timers; only the people receiving a task act on it.
+  if (r.requester) return [];
 
   // A staff request waiting on this lead: only the answer to it (Ornate rule: nothing else to misclick).
   if (r.lead && pendingRequest(t)) return ['approve_request', 'refuse_request'];
@@ -77,7 +80,6 @@ export function available(c: Ctx): Action[] {
     else if (r.assignee) {
       if (t.status === 'Accepted') out.add('in_progress');
       out.add('complete').add('change_priority');
-      if (t.status !== 'WaitingInfo') out.add('ask_requester');
       if (t.status === 'Accepted' || t.status === 'InProgress') out.add('hand_off');
       out.add(t.status === 'Blocked' ? 'unblock' : 'block');
       if (r.staff) {
@@ -201,11 +203,12 @@ export async function run(c: Ctx, action: Action, body: unknown): Promise<Result
     }
     case 'block': {
       const { reason } = parse(z.object({ reason: Reason }), body);
-      await upd({ status: 'Blocked', ...halt(t, now, 'paused', ownerShift, holidays) });
+      // No clock pauses (owner decision 27 Nov): a blocked task's time keeps counting.
+      await upd({ status: 'Blocked' });
       return { type: 'blocked', payload: { reason }, push: { to: [c.senderId, ...leads()], text: `blocked: ${reason}` } };
     }
     case 'unblock':
-      await upd({ status: 'InProgress', ...start(t, now, ownerShift, holidays) });
+      await upd({ status: 'InProgress' });
       return { type: 'unblocked', payload: {}, push: { to: [c.senderId], text: 'work resumed' } };
     case 'request_reject':
     case 'request_transfer': {

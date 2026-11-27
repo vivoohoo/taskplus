@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { io as connect, type Socket } from 'socket.io-client';
 import request from 'supertest';
+import { tick } from '../src/workflow/timers';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startTestApp, type TestApp } from './helpers/app';
 
@@ -196,7 +197,7 @@ describe('Flow C: accept, reassign, status', () => {
     expect((await t.as(tok.priya!).post(`/v1/tasks/${r.body.task.id}/accept`)).status).toBe(403);
   });
 
-  it('head reassigns inside the department; assignee works it, requester verifies and closes', async () => {
+  it('head reassigns inside the department; assignee completes it; it verifies and closes itself', async () => {
     const th = await openDept('riya', 'Development');
     const r = await send('riya', th.id, { bodyText: 'Power BI dashboard totals wrong' });
     const taskId = r.body.task.id;
@@ -209,10 +210,11 @@ describe('Flow C: accept, reassign, status', () => {
     expect((await act('dhaval', 'in_progress')).status).toBe(403);
     expect((await act('vishwas', 'in_progress')).body.task.status).toBe('InProgress');
     expect((await act('vishwas', 'complete', { remarks: 'Fixed the measure' })).body.task.status).toBe('Completed');
-    expect((await act('vishwas', 'verify')).status).toBe(403); // only the requester verifies
-    expect((await act('riya', 'verify')).body.task.status).toBe('Verified');
-    const closed = await act('riya', 'close', { resolution: 'Totals match now', customerInformed: 'yes' });
-    expect(closed.body.task).toMatchObject({ status: 'Closed', resolution: 'Totals match now', customerInformed: 'yes' });
+    expect((await act('riya', 'verify')).status).toBe(403); // senders see a statement, no buttons (owner decision 27 Nov)
+    const deps = { db: t.db, realtime: t.app.services.realtime, jobs: () => t.app.services.jobs, log: t.app.log as never };
+    await tick(deps, new Date(Date.now() + 5 * 86_400_000));
+    await tick(deps, new Date(Date.now() + 12 * 86_400_000));
+    expect((await t.as(tok.riya!).get(`/v1/tasks/${taskId}`)).body.task).toMatchObject({ status: 'Closed', assignedTo: 'Vishwas' });
     const events = await t.db.selectFrom('task_events').select('type').where('task_id', '=', taskId).orderBy('created_at').execute();
     expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['created', 'structured', 'accepted', 'reassigned', 'status_changed', 'completed', 'verified', 'closed']));
   });
@@ -246,15 +248,15 @@ describe('Flow D: filters', () => {
     expect(counts.overdue).toBeGreaterThan(0);
     await t.as(tok.supLead!).post(`/v1/tasks/${r.body.task.id}/accept`);
     await t.as(tok.supLead!).post(`/v1/tasks/${r.body.task.id}/actions/complete`, { remarks: 'Activated' });
-    await t.as(tok.karan!).post(`/v1/tasks/${r.body.task.id}/actions/verify`);
-    await t.as(tok.karan!).post(`/v1/tasks/${r.body.task.id}/actions/close`, { resolution: 'Key works', customerInformed: 'n/a' });
+    await tick({ db: t.db, realtime: t.app.services.realtime, jobs: () => t.app.services.jobs, log: t.app.log as never }, new Date(Date.now() + 5 * 86_400_000));
+    await tick({ db: t.db, realtime: t.app.services.realtime, jobs: () => t.app.services.jobs, log: t.app.log as never }, new Date(Date.now() + 12 * 86_400_000));
     expect((await t.as(tok.karan!).get('/v1/tasks?filter=closed')).body.items[0].task.id).toBe(r.body.task.id);
     expect((await t.as(tok.supLead!).get('/v1/tasks?filter=my_pending')).body.items.map((x: { task: { id: string } }) => x.task.id)).not.toContain(r.body.task.id);
   });
 });
 
 describe('decisions D1, D4: sent by me, cancel', () => {
-  it('lists my open sent tasks, and lets me cancel one until someone accepts it', async () => {
+  it('lists my open sent tasks; the sender can no longer cancel (statement only, 27 Nov)', async () => {
     const th = await openDept('karan', 'Sales');
     const a = await send('karan', th.id, { bodyText: 'Quotation for 5 more Profit NX users' });
     const b = await send('karan', th.id, { bodyText: 'Demo for Kaveri Steel next week' });
@@ -262,14 +264,9 @@ describe('decisions D1, D4: sent by me, cancel', () => {
     expect(sent).toEqual(expect.arrayContaining([a.body.task.id, b.body.task.id]));
     expect((await t.as(tok.karan!).get('/v1/tasks/counts')).body.sentByMe).toBeGreaterThanOrEqual(2);
 
-    expect((await t.as(tok.priya!).post(`/v1/tasks/${a.body.task.id}/cancel`)).status).toBe(403); // not the sender
-    const c = await t.as(tok.karan!).post(`/v1/tasks/${a.body.task.id}/cancel`);
-    expect(c.body.task.status).toBe('Cancelled');
-    expect((await t.as(tok.karan!).get('/v1/tasks?filter=sent_by_me')).body.items.map((x: { task: { id: string } }) => x.task.id)).not.toContain(a.body.task.id);
-
-    await t.as(tok.priya!).post(`/v1/tasks/${b.body.task.id}/accept`);
-    const late = await t.as(tok.karan!).post(`/v1/tasks/${b.body.task.id}/cancel`);
-    expect(late.status).toBe(403); // no longer offered once accepted
+    expect((await t.as(tok.priya!).post(`/v1/tasks/${a.body.task.id}/cancel`)).status).toBe(403);
+    expect((await t.as(tok.karan!).post(`/v1/tasks/${a.body.task.id}/cancel`)).status).toBe(403);
+    expect((await t.as(tok.karan!).get(`/v1/tasks/${b.body.task.id}`)).body.task.assignedTo).toBe('Sales');
   });
 
   it('serves a stored file only with a valid signed link', async () => {

@@ -132,6 +132,13 @@ class _CaseScreenState extends ConsumerState<CaseScreen> {
     ]..sort((a, b) => a.$1.compareTo(b.$1));
     final kept = entries.where((x) => _show == 'All' || (_show == 'Messages' && x.$3 != 'u') || (_show == 'Updates' && x.$3 == 'u') || (_show == 'Files' && x.$3 == 'f')).toList();
     final t = row.task;
+    if (row.requesterId == me && !t.isNote) {
+      // The sender: their own words and where it stands, no update cards and no actions (owner decision 27 Nov).
+      return ListView(padding: const EdgeInsets.fromLTRB(12, 10, 12, 16), children: [
+        for (final x in entries.where((x) => x.$3 != 'u')) x.$2,
+        SenderStatement(task: t),
+      ]);
+    }
     final list = <Widget>[
       Center(child: Wrap(spacing: 6, children: [
         for (final s in const ['All', 'Messages', 'Updates', 'Files']) OChip(s, key: Key('show-$s'), small: true, on: _show == s, onTap: () => setState(() => _show = s)),

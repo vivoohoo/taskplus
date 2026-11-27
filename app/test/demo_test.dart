@@ -57,13 +57,14 @@ void main() {
     expect(sent.task!.priority, 'High');
     expect(sent.task!.module, 'Profit NX');
     expect(sent.task!.customerName, 'Om Logistics');
-    expect(sent.task!.actions, contains('cancel'));
+    expect((await riya.task(sent.task!.id)).task!.actions, isEmpty); // senders see a statement, no buttons
+    expect(sent.task!.assignedTo, 'Development');
     final id = sent.task!.id;
     expect((await kunal.accept(id)).status, 'Accepted');
     expect(() => kunal.action(id, 'complete'), throwsA(isA<ApiException>()));
     expect((await kunal.action(id, 'complete', {'remarks': 'Fixed'})).status, 'Completed');
-    expect((await riya.action(id, 'verify')).status, 'Verified');
-    expect((await riya.action(id, 'close', {'resolution': 'Done', 'customerInformed': 'yes'})).status, 'Closed');
+    expect(() => riya.action(id, 'verify'), throwsA(isA<ApiException>()));
+    expect((await riya.task(id)).task!.assignedTo, 'Kunal Mehta');
   });
 
   test('private notes, /subtask and the bell', () async {

@@ -54,6 +54,15 @@ One line each: decision — reason — alternative.
 
 Keep Ornate Samanvay's UI and basic features with every Task Plus feature; Phase 1 only, nothing from Phase 2 until the leadership review; when in doubt, ask. Full list in [ORNATE_UI.md](ORNATE_UI.md). Note: the home screen follows Ornate's tabs and six chips, which goes beyond Phase 1 item 8 ("at most 3 buttons"); the owner chose this.
 
+## Owner decisions, 27 Nov 2026 (sender view, clock, demo data)
+
+| Question | Decision |
+| --- | --- |
+| What the sender sees | One line under their message: ticket number, subject, who has it, status. No cards, no buttons, in the app and the demo. Replaces D5 (sender sees the AI card), D4 (sender cancels) and the sender's verify / close / reopen / edit / escalate |
+| Who closes a task | Nobody needs to: Completed verifies itself after 2 working days and closes 3 working days later (timers) |
+| Clock pauses | None. Blocked and Waiting for another department keep the clock running; "Ask requester" removed (owners ask in the chat) |
+| Demo data on Vercel | Shared Postgres (Supabase or Neon from Vercel Storage) through `api/state.js`; every browser and account sees the same tasks |
+
 ## Contradictions found in the spec (for Review 1)
 
 - §3/§6 say PostgreSQL + Drizzle; owner chose SQL Server (decisions 1–2).

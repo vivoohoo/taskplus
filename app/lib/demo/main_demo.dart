@@ -1,6 +1,9 @@
 // Browser demo: the whole app on sample data, no server. Build: flutter build web -t lib/demo/main_demo.dart
 import 'dart:async';
 
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
+
 import 'package:drift/drift.dart' show LazyDatabase;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -18,16 +21,21 @@ import '../data/repository.dart';
 import '../main.dart';
 import 'demo_backend.dart';
 import 'claude_speech.dart';
+import 'vercel_sync.dart';
 import '../features/composer/composer.dart' show speechHost;
 
 final demoSpeech = ClaudeSpeech();
+VercelSync? demoShared;
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   AppConfig.apiBaseUrl = 'https://demo.local';
   AppTheme.font = 'NotoSans';
   AppTheme.fallback = const ['NotoSansDevanagari', 'NotoSansGujarati'];
-  final api = DemoApi();
+  // On Vercel with a database: everyone shares the demo's data. Elsewhere it lives in this tab.
+  final sync = await VercelSync.connect();
+  demoShared = sync;
+  final api = DemoApi(null, sync);
   loginPage = () => const DemoLogin();
   // On claude.ai: dictation and read-aloud come from the page host (asked for in the background; the app starts at once).
   speechHost = demoSpeech;
@@ -118,6 +126,24 @@ class DemoLogin extends ConsumerWidget {
         Text('Demo with sample data. Choose who to be; sign out on the You page to switch.', style: t.textTheme.bodyMedium),
         const SizedBox(height: 6),
         const _SpeechStatus(),
+        const SizedBox(height: 4),
+        Row(children: [
+          Icon(demoShared != null ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, size: 16, color: t.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(child: Text(demoShared != null ? 'Shared data: everyone using this link sees the same tasks.' : 'Data stays in this tab (no shared database here).',
+              style: t.textTheme.bodySmall)),
+          if (demoShared != null) TextButton(
+            onPressed: () async {
+              final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+                title: const Text('Start over with the sample data?'),
+                content: const Text('Everyone using this link loses the tasks added so far.'),
+                actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Back')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Start over'))],
+              ));
+              if (ok == true) { await demoShared!.reset(); reloadPage(); }
+            },
+            child: const Text('Start over'),
+          ),
+        ]),
         const SizedBox(height: 16),
         for (final (phone, name, role) in _people)
           Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(
@@ -152,3 +178,8 @@ class _SpeechStatusState extends State<_SpeechStatus> {
         Expanded(child: Text(demoSpeech.status, key: const Key('speech-status'), style: Theme.of(context).textTheme.bodySmall)),
       ]);
 }
+
+JSObject get globalThisLocation => (globalContext['location'] as JSObject);
+
+/// Reloads the browser tab (used after "Start over").
+void reloadPage() => globalThisLocation.callMethod('reload'.toJS);

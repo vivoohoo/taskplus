@@ -42,46 +42,42 @@ describe('working-hours clock (India time, Mon–Sat, holidays skipped)', () => 
 });
 
 describe('actions each person gets', () => {
-  it('recipient accepts; requester may cancel; the server lists only allowed buttons', async () => {
+  it('recipient accepts; the sender gets no buttons; the server lists only allowed buttons', async () => {
     const { taskId } = await newTask('riya', { department: dev }, 'Profit NX invoice rounding');
-    expect(await view('riya', taskId)).toMatchObject({ status: 'Open' });
-    expect((await view('riya', taskId)).actions).toEqual(expect.arrayContaining(['cancel', 'change_priority', 'escalate']));
+    expect(await view('riya', taskId)).toMatchObject({ status: 'Open', actions: [], assignedTo: 'Development' });
     expect((await view('kunal', taskId)).actions).toEqual(expect.arrayContaining(['accept', 'request_reject', 'request_transfer']));
     expect((await view('tushar', taskId)).actions).toEqual(expect.arrayContaining(['accept', 'reassign', 'reject', 'transfer']));
     const a = await act('kunal', taskId, 'accept');
     expect(a.body.task).toMatchObject({ status: 'Accepted', assigneeId: id('kunal') });
     expect(a.body.task.clock.state).toBe('running');
-    expect(a.body.task.actions).toEqual(expect.arrayContaining(['in_progress', 'complete', 'ask_requester', 'block', 'ask_reassign']));
+    expect(a.body.task.actions).toEqual(expect.arrayContaining(['in_progress', 'complete', 'block', 'ask_reassign']));
     expect((await act('riya', taskId, 'cancel')).status).toBe(403);
   });
 });
 
 describe('ask the requester, block, complete, verify, reopen', () => {
-  it('pauses for a question until the requester answers in the chat', async () => {
+  it('questions are chat messages: no "ask requester", and a reply on a task is not a new task', async () => {
     const { threadId, taskId } = await newTask('riya', { user: 'dhaval' }, 'SQL backup failing at Om Logistics');
     await act('dhaval', taskId, 'accept');
-    const q = await act('dhaval', taskId, 'ask_requester', { question: 'Which server name?' });
-    expect(q.body.task).toMatchObject({ status: 'WaitingInfo', dueAt: null });
-    expect(q.body.task.clock.state).toBe('paused');
-    const r = await t.as(tok.riya!).post(`/v1/threads/${threadId}/messages`, { clientMsgId: randomUUID(), kind: 'text', bodyText: 'OML-SRV-02', replyToTaskId: taskId });
+    expect((await view('dhaval', taskId)).actions).not.toContain('ask_requester');
+    const r = await t.as(tok.riya!).post(`/v1/threads/${threadId}/messages`, { clientMsgId: randomUUID(), kind: 'text', bodyText: 'Server is OML-SRV-02', replyToTaskId: taskId });
     expect(r.status).toBe(201);
-    expect(r.body.task).toBeNull(); // a reply, not a new task
-    expect(await view('dhaval', taskId)).toMatchObject({ status: 'InProgress' });
+    expect(r.body.task).toBeNull();
   });
 
-  it('block stops the clock; complete -> verify -> close; reopen within 7 days', async () => {
+  it('blocked keeps the clock running (no pauses); the sender gets no buttons', async () => {
     const { taskId } = await newTask('karan', { user: 'nisha' }, 'Power BI refresh stuck');
+    expect((await view('karan', taskId)).actions).toEqual([]);
     await act('nisha', taskId, 'accept');
-    expect((await act('nisha', taskId, 'block', { reason: 'Waiting for gateway access' })).body.task.status).toBe('Blocked');
-    expect((await act('nisha', taskId, 'unblock')).body.task.clock.state).toBe('running');
+    const b = await act('nisha', taskId, 'block', { reason: 'Waiting for gateway access' });
+    expect(b.body.task.status).toBe('Blocked');
+    expect(b.body.task.clock.state).toBe('running');
+    expect(b.body.task.dueAt).not.toBeNull();
+    expect((await act('nisha', taskId, 'unblock')).body.task.status).toBe('InProgress');
     expect((await act('nisha', taskId, 'complete', {})).status).toBe(400); // remarks needed
     await act('nisha', taskId, 'complete', { remarks: 'Gateway restarted' });
-    expect((await view('karan', taskId)).actions).toEqual(['verify', 'reopen']);
-    await act('karan', taskId, 'verify');
-    await act('karan', taskId, 'close', { resolution: 'Refreshing again', customerInformed: 'n/a' });
-    const re = await act('karan', taskId, 'reopen', { reason: 'Stuck again this morning' });
-    expect(re.body.task).toMatchObject({ status: 'InProgress', closedAt: null });
-    expect(re.body.task.clock.state).toBe('running');
+    expect((await view('karan', taskId)).actions).toEqual([]);
+    for (const a of ['verify', 'close', 'reopen', 'cancel', 'escalate']) expect((await act('karan', taskId, a, { reason: 'x' })).status).toBe(403);
   });
 });
 
@@ -119,7 +115,8 @@ describe('escalation and priority', () => {
   it('escalates to the next level that someone holds, and only they attend it', async () => {
     const { taskId } = await newTask('riya', { department: dev }, 'Mobile app crash on login');
     await act('nisha', taskId, 'accept');
-    const e = await act('riya', taskId, 'escalate', { level: 'team_lead', reason: 'Customer waiting since morning' });
+    expect((await act('riya', taskId, 'escalate', { level: 'team_lead', reason: 'x' })).status).toBe(403); // senders don't act
+    const e = await act('nisha', taskId, 'escalate', { level: 'team_lead', reason: 'Customer waiting since morning' });
     expect(e.body.task).toMatchObject({ escalationLevel: 'team_lead', escalatedTo: [id('vishwas')] });
     expect((await view('vishwas', taskId)).actions).toContain('attend');
     expect((await view('dhaval', taskId)).actions).not.toContain('attend');

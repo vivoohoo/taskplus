@@ -9,6 +9,7 @@ import '../../data/models.dart';
 import '../../data/outbox.dart';
 import '../../data/providers.dart';
 import '../composer/composer.dart';
+import '../ornate/widgets.dart' show SenderStatement;
 import '../task_card/task_card.dart';
 import 'attachments.dart';
 import 'chat_controller.dart';
@@ -93,11 +94,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (me != null && i.message.senderId == me.id) {
       return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
         SentBubble(item: i, replyTo: replyTo),
-        if (i.task != null) Align(
+        if (i.task != null && !i.task!.isNote) SenderStatement(task: i.task!, onTap: () => setState(() => _replyTo = i.task)),
+        if (i.task != null && i.task!.isNote) Align(
           alignment: Alignment.centerRight,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
-            child: TaskCard(item: i, onTask: ref.read(chatProvider(widget.threadId).notifier).applyTask, onAnswer: (t) => setState(() => _replyTo = t)),
+            child: TaskCard(item: i, onTask: ref.read(chatProvider(widget.threadId).notifier).applyTask),
           ),
         ),
       ]);

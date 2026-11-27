@@ -50,8 +50,10 @@ class Task {
     this.subject, this.module, this.customerName, this.customerPhone, this.customerLocation, this.licenseNo, this.details,
     this.assigneeId, this.taggedUserId, this.departmentId, this.aiError, this.warnings = const [], this.closedAt,
     this.actions = const [], this.clockState = 'not started', this.usedMs = 0, this.escalationLevel, this.resolution, this.customerInformed,
-    this.reassignRequestedBy, this.requestKind, this.ticketNo, this.parentTaskId, this.isNote = false, this.createdAt,
+    this.reassignRequestedBy, this.requestKind, this.ticketNo, this.parentTaskId, this.isNote = false, this.createdAt, this.assignedTo,
   });
+  /// Who has it, for the sender's statement: a person, a team or a department.
+  final String? assignedTo;
   /// Set on a sub-task (Ornate's Hand off).
   final String? parentTaskId;
   /// A private note (a chat with yourself).
@@ -108,6 +110,7 @@ class Task {
         requestKind: (j['request'] as Map?)?['kind'] as String?,
         ticketNo: j['ticketNo'] as String?,
         parentTaskId: j['parentTaskId'] as String?,
+        assignedTo: j['assignedTo'] as String?,
         isNote: j['isNote'] == true,
         createdAt: j['createdAt'] == null ? null : DateTime.parse(j['createdAt'] as String),
       );

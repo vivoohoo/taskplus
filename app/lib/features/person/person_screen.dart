@@ -35,6 +35,7 @@ class PersonScreen extends ConsumerStatefulWidget {
 
 class _PersonScreenState extends ConsumerState<PersonScreen> {
   String _filter = 'All';
+  Task? _replyTo;
   String get _key => widget.tab == null ? widget.partyKey : '${widget.partyKey}|${widget.tab}';
   StreamSubscription? _events;
 
@@ -133,6 +134,7 @@ class _PersonScreenState extends ConsumerState<PersonScreen> {
         ),
         if (thread != null)
           Composer(threadId: thread.id, departmentId: thread.isDepartment ? thread.departmentId : null, onSend: (d) => outbox.add(d),
+              replyTo: _replyTo, onCancelReply: () => setState(() => _replyTo = null),
               hint: party.isSelf ? 'Private note, only you see it' : null)
         else
           const LinearProgressIndicator(),
@@ -146,6 +148,13 @@ class _PersonScreenState extends ConsumerState<PersonScreen> {
     final bubble = OBubble(message: i.message, out: out, name: names[i.message.senderId], about: about);
     if (i.task == null) {
       return GestureDetector(onTap: () => context.push('/case/${i.message.replyToTaskId}'), child: bubble);
+    }
+    // The sender sees one line, never the card (owner decision 27 Nov). Private notes are theirs to work, so they keep it.
+    if (out && !i.task!.isNote) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        bubble,
+        SenderStatement(task: i.task!, onTap: () => setState(() => _replyTo = i.task)),
+      ]);
     }
     return Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
       bubble,

@@ -19,7 +19,7 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
   const { db } = d;
   const now = nowDate.getTime();
   const [org, holidays] = await Promise.all([loadOrg(db), loadHolidays(db)]);
-  const tasks = await db.selectFrom('tasks').selectAll().where('status', 'in', ['Open', 'Accepted', 'InProgress', 'Completed', 'Verified']).execute();
+  const tasks = await db.selectFrom('tasks').selectAll().where('status', 'in', ['Open', 'Accepted', 'InProgress', 'WaitingInfo', 'WaitingDept', 'Blocked', 'Completed', 'Verified']).execute();
   const shifts = new Map((await db.selectFrom('users').select(['id', 'shift']).execute()).map((u) => [u.id, shiftOf(u.shift)]));
   const senders = new Map((await db.selectFrom('messages').select(['id', 'sender_id']).where('id', 'in', tasks.length ? tasks.map((t) => t.message_id) : ['00000000-0000-0000-0000-000000000000']).execute()).map((m) => [m.id, m.sender_id]));
 
@@ -49,7 +49,7 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
         }
         continue;
       }
-      if ((t.status === 'Accepted' || t.status === 'InProgress') && t.clock_state === 'running' && t.assignee_id) {
+      if (['Accepted', 'InProgress', 'WaitingInfo', 'WaitingDept', 'Blocked'].includes(t.status) && t.clock_state === 'running' && t.assignee_id) {
         const lim = LIMITS[t.priority].completeMs;
         const usedMs = used(t, now, shifts.get(t.assignee_id) ?? shiftOf(0), holidays);
         const warned = JSON.parse(t.warned) as string[];

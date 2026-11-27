@@ -1,0 +1,7 @@
+{
+  "name": "taskplus-demo-site",
+  "private": true,
+  "description": "Only for Vercel: the browser demo (demo-site/) and its shared data function (api/state.js). The real server is in server/.",
+  "engines": { "node": ">=20" },
+  "dependencies": { "postgres": "3.4.7" }
+}

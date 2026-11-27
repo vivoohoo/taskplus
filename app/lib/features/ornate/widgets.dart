@@ -200,3 +200,39 @@ String previewOf(CaseRow r) {
   final (title, _, _, note) = eventLook(e.$1, e.$2);
   return note == null ? title : '$title · $note';
 }
+
+/// What a sender sees instead of the card (owner decision 27 Nov): one line, no buttons.
+/// "ORN-SS-2627-00042 · Printing broken — assigned to Kunal Mehta · Accepted"
+String statementOf(Task t) {
+  final state = switch (t.status) {
+    'Open' => 'Not accepted yet', 'InProgress' => 'In progress', 'WaitingInfo' => 'Waiting for information',
+    'WaitingDept' => 'Waiting for another department', final s => s,
+  };
+  final subject = t.aiStatus == 'pending' ? 'Reading the message…' : t.subject ?? 'Task';
+  return '${t.ticketNo ?? ''} · $subject — assigned to ${t.assignedTo ?? '…'} · $state';
+}
+
+class SenderStatement extends StatelessWidget {
+  const SenderStatement({super.key, required this.task, this.onTap});
+  final Task task;
+  /// Reply about this task in the chat.
+  final VoidCallback? onTap;
+  @override
+  Widget build(BuildContext context) {
+    final o = context.o;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          key: Key('statement-${task.id}'),
+          margin: const EdgeInsets.only(top: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.78),
+          decoration: BoxDecoration(color: o.bg.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)),
+          child: Text(statementOf(task), style: TextStyle(fontSize: 12.5, color: o.muted)),
+        ),
+      ),
+    );
+  }
+}

@@ -1,15 +1,47 @@
 // In-browser demo backend for the shared web link: the same API the real server offers, answered from memory,
 // with sample people, teams and tasks. The workflow rules mirror server/src/workflow/engine.ts; the "AI" is a
 // simple keyword reader (the real app uses an LLM). Nothing leaves the browser.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+/// Where the demo's data is shared (Vercel's /api/state, backed by Postgres). Null: in this tab only.
+abstract class DemoSync {
+  Future<({int version, Map<String, dynamic>? data})> get();
+  /// Saves if nobody saved since [version]; otherwise returns ok=false with the latest.
+  Future<({bool ok, int version, Map<String, dynamic>? data})> put(int version, Map<String, dynamic> data);
+  Future<void> reset();
+}
+
 class DemoApi implements HttpClientAdapter {
-  DemoApi([DemoBackend? backend]) : backend = backend ?? DemoBackend.seeded();
+  DemoApi([DemoBackend? backend, this.sync]) : backend = backend ?? DemoBackend.seeded();
   final DemoBackend backend;
+  final DemoSync? sync;
+  int _version = 0;
+  DateTime _pulled = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> _queue = Future.value();
+
+  /// Latest shared data: everyone's changes show up after switching people or on another computer.
+  Future<void> _pull() async {
+    final r = await sync!.get();
+    _pulled = DateTime.now();
+    if (r.data == null) {
+      // First visit ever: share the sample data.
+      final p = await sync!.put(0, backend.toJson());
+      if (p.ok) { _version = p.version; } else if (p.data != null) { backend.load(p.data!); _version = p.version; }
+      return;
+    }
+    if (r.version != _version) { backend.load(r.data!); _version = r.version; }
+  }
+
+  (int, Object?) _handle(RequestOptions o, Map<String, dynamic> body, String? me) {
+    final uri = Uri.parse(o.uri.toString());
+    final path = uri.path.replaceFirst(RegExp(r'^.*?/v1'), '');
+    return backend.handle(o.method, path, uri.queryParameters, body, me);
+  }
 
   @override
   Future<ResponseBody> fetch(RequestOptions o, Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
@@ -20,11 +52,42 @@ class DemoApi implements HttpClientAdapter {
       final bytes = await requestStream.expand((b) => b).toList();
       if (bytes.isNotEmpty) body = jsonDecode(utf8.decode(bytes));
     }
-    final uri = Uri.parse(o.uri.toString());
     final auth = '${o.headers['authorization'] ?? ''}';
     final me = auth.startsWith('Bearer demo:') ? auth.substring(12) : null;
-    final path = uri.path.replaceFirst(RegExp(r'^.*?/v1'), '');
-    final (status, json) = backend.handle(o.method, path, uri.queryParameters, body is Map ? Map<String, dynamic>.from(body) : const {}, me);
+    final b = body is Map ? Map<String, dynamic>.from(body) : const <String, dynamic>{};
+    final s = sync;
+    if (s == null) {
+      final (status, json) = _handle(o, b, me);
+      return ResponseBody.fromString(jsonEncode(json), status, headers: {Headers.contentTypeHeader: [Headers.jsonContentType]});
+    }
+    // One request at a time, so a save never races this browser's own next change.
+    final done = Completer<(int, Object?)>();
+    _queue = _queue.then((_) async {
+      try {
+        final changes = o.method != 'GET' && !o.uri.path.endsWith('/auth/login');
+        if (changes || DateTime.now().difference(_pulled) > const Duration(seconds: 2)) {
+          try { await _pull(); } catch (_) {/* offline: keep going with what this tab has */}
+        }
+        var r = _handle(o, b, me);
+        if (changes && r.$1 < 400) {
+          try {
+            var saved = await s.put(_version, backend.toJson());
+            if (!saved.ok && saved.data != null) {
+              // Someone else saved first: take theirs and do this change again on top.
+              backend.load(saved.data!);
+              _version = saved.version;
+              r = _handle(o, b, me);
+              saved = await s.put(_version, backend.toJson());
+            }
+            if (saved.ok) _version = saved.version;
+          } catch (_) {/* not saved: stays in this tab */}
+        }
+        done.complete(r);
+      } catch (e, st) {
+        done.completeError(e, st);
+      }
+    });
+    final (status, json) = await done.future;
     return ResponseBody.fromString(jsonEncode(json), status, headers: {Headers.contentTypeHeader: [Headers.jsonContentType]});
   }
 
@@ -60,6 +123,22 @@ class DemoBackend {
   ];
   final customers = ['Mehta Traders', 'Shree Ganesh Textiles', 'Sunrise Pharma', 'Om Logistics', 'Patel Agro Foods', 'Kaveri Steel'];
   int _seq = 0, _ticket = 41;
+
+  /// Everything the demo knows, for the shared database.
+  Map<String, dynamic> toJson() => {
+        'users': users, 'depts': depts, 'teams': teams, 'threads': threads, 'messages': messages, 'tasks': tasks, 'events': events,
+        'suggestions': suggestions, 'holidays': holidays, 'notes': notes, 'seq': _seq, 'ticket': _ticket,
+      };
+
+  void load(Map<String, dynamic> j) {
+    List<Map<String, dynamic>> rows(String k) => [for (final x in (j[k] as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
+    for (final (list, k) in [(users, 'users'), (depts, 'depts'), (teams, 'teams'), (threads, 'threads'), (messages, 'messages'), (tasks, 'tasks'),
+        (events, 'events'), (suggestions, 'suggestions'), (holidays, 'holidays'), (notes, 'notes')]) {
+      list..clear()..addAll(rows(k));
+    }
+    _seq = (j['seq'] as num?)?.toInt() ?? _seq;
+    _ticket = (j['ticket'] as num?)?.toInt() ?? _ticket;
+  }
   String _id(String p) => '$p-${++_seq}';
   DateTime now() => DateTime.now().toUtc();
 
@@ -110,7 +189,7 @@ class DemoBackend {
     final b2 = send(riya, {'targetType': 'team', 'targetId': tPbi}, 'पटेल एग्रो फूड्स, राजकोट: Power BI डैशबोर्ड में मासिक टोटल गलत आ रहा है, कल बोर्ड मीटिंग है, जल्दी देखो।', const Duration(hours: 2));
     send(riya, {'targetType': 'department', 'targetId': dev}, 'Kaveri Steel na Ornate invoice ma GST number print nathi thato, jyare samay male tyare joi lejo.', const Duration(minutes: 40));
     as(nisha, b2, 'accept');
-    as(nisha, b2, 'ask_requester', {'question': 'Which month is wrong - October or all of them?'});
+    as(nisha, b2, 'in_progress');
     final c = send(priya, {'targetType': 'department', 'targetId': dev}, 'Sunrise Pharma wants the Ornate quotation PDF to show their GST number. Not urgent.', const Duration(days: 2));
     as(amit, c, 'accept');
     as(amit, c, 'complete', {'remarks': 'GST number added to the quotation template.'});
@@ -118,12 +197,12 @@ class DemoBackend {
     as(kunal, d, 'accept');
     as(kunal, d, 'block', {'reason': 'Waiting for the crash log from Om Logistics'});
     final e = send(priya, {'targetType': 'user', 'targetId': vishwas}, 'Server down at Kaveri Steel Ahmedabad, nobody can bill. Critical!', const Duration(hours: 5));
-    as(priya, e, 'escalate', {'level': 'team_lead', 'reason': 'Customer has called three times'});
+    as(vishwas, e, 'escalate', {'level': 'team_lead', 'reason': 'Customer has called three times'});
     final f = send(kunal, {'targetType': 'department', 'targetId': sup}, 'SQL installation needed on the new billing PC at Shree Ganesh Textiles, Surat.', const Duration(days: 4));
     as(riya, f, 'accept');
     as(riya, f, 'complete', {'remarks': 'SQL Server 2022 installed and backed up.'});
-    as(kunal, f, 'verify');
-    as(kunal, f, 'close', {'resolution': 'Installed and tested with the customer.', 'customerInformed': 'yes'});
+    // Verified and closed by the timers (senders don't act): set as already done.
+    b._set(b._task(f), {'status': 'Closed', 'closedAt': n.subtract(const Duration(days: 1)).toIso8601String(), 'resolution': 'Installed and tested with the customer.'});
     send(amit, {'targetType': 'department', 'targetId': hr}, 'Please update my bank account for salary credit from next month.', const Duration(hours: 1));
     send(riya, {'targetType': 'self'}, 'Call Shree Ganesh Textiles back on Monday about the renewal.', const Duration(minutes: 20));
     b.notes.clear();
@@ -261,7 +340,7 @@ class DemoBackend {
     tasks.add(t);
     _event(t, me['id'] as String, 'created', {}, at: when);
     if (parent != null) {
-      _set(parent, {'status': 'WaitingDept', 'clock': 'paused'});
+      _set(parent, {'status': 'WaitingDept'}); // no clock pauses (owner decision 27 Nov)
       _event(parent, me['id'] as String, 'handed_off', {'subject': text});
     }
     if (!note) {
@@ -286,11 +365,21 @@ class DemoBackend {
     'dueAt': t['due'] == null || t['clock'] == 'paused' || _finished.contains(t['status']) || t['status'] == 'Completed' || t['status'] == 'Verified' ? null : t['due'],
     'clock': {'state': t['clock'], 'usedMs': t['usedMs']}, 'escalationLevel': t['escalation'], 'escalatedTo': t['escalatedTo'],
     'reassignRequestedBy': t['reassignAsker'], 'request': t['request'], 'parentTaskId': t['parent'], 'isNote': t['note'] == true, 'resolution': t['resolution'], 'customerInformed': t['informed'],
-    'closedAt': t['closedAt'], 'createdAt': t['created'], 'updatedAt': t['updated'], 'actions': available(_user(viewer), t)};
+    'closedAt': t['closedAt'], 'createdAt': t['created'], 'updatedAt': t['updated'], 'actions': available(_user(viewer), t), 'assignedTo': _withWhom(t)};
 
   Map<String, dynamic> _item(Map<String, dynamic> m, String viewer) {
     final t = tasks.where((x) => x['message'] == m['id']).firstOrNull;
     return {'message': _messageJson(m), 'task': t == null ? null : _taskJson(t, viewer)};
+  }
+
+  /// Who has it, for the sender's statement.
+  String? _withWhom(Map<String, dynamic> t) {
+    final th = _thread(t['thread'] as String);
+    final sender = _msg(t['message'] as String)['sender'];
+    return _name(t['assignee'] as String?) ?? _name(t['tagged'] as String?)
+        ?? (th['type'] == 'direct' ? _name((th['a'] == sender ? th['b'] : th['a']) as String?) : null)
+        ?? (t['team'] != null ? '${_team(t['team'])['name']} team' : null)
+        ?? depts.where((d) => d['id'] == t['dept']).firstOrNull?['name'] as String?;
   }
 
   // ---------------------------------------------------------------- workflow (mirrors server/src/workflow/engine.ts)
@@ -308,6 +397,8 @@ class DemoBackend {
         : me['dept'] == t['dept'] && (t['team'] == null || me['team'] == t['team'] || myTeams.contains(t['team'])));
     final s = t['status'] as String, out = <String>{};
     if (_finished.contains(s) && s != 'Closed') return [];
+    // The sender sees a statement, never buttons (owner decision 27 Nov).
+    if (requester) return [];
     if (lead && t['request'] != null) return ['approve_request', 'refuse_request'];
     if (lead && t['reassignAsker'] != null && _active.contains(s)) return ['reassign', 'keep'];
     if (s == 'Open') {
@@ -324,7 +415,6 @@ class DemoBackend {
         if (s == 'Accepted' || s == 'InProgress') out.add('hand_off');
         if (s == 'Accepted') out.add('in_progress');
         out.addAll(['complete', 'change_priority']);
-        if (s != 'WaitingInfo') out.add('ask_requester');
         out.add(s == 'Blocked' ? 'unblock' : 'block');
         if (staff) { if (t['reassignAsker'] == null) out.add('ask_reassign'); if (t['request'] == null) out.addAll(['request_reject', 'request_transfer']); }
         else { out.addAll(['reject', 'transfer']); }
@@ -415,7 +505,7 @@ class DemoBackend {
       case 'ask_requester':
         need('question'); _set(t, {'status': 'WaitingInfo', 'clock': 'paused'});
       case 'block':
-        need('reason'); _set(t, {'status': 'Blocked', 'clock': 'paused'});
+        need('reason'); _set(t, {'status': 'Blocked'});
       case 'unblock':
         _set(t, {'status': 'InProgress', 'clock': 'running'});
       case 'request_reject' || 'request_transfer':

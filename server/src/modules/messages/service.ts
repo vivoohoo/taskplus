@@ -8,7 +8,7 @@ import { Id, parse } from '../../lib/validate';
 import { KEY_PATTERN, type StorageProvider } from '../../storage/StorageProvider';
 import { type AttachmentRow, messageDto, taskDto } from '../dto';
 import { loadOrg } from '../org';
-import { NEVER, acceptDue, halt, loadHolidays, shiftOf, start } from '../../workflow/clock';
+import { NEVER, acceptDue, loadHolidays, shiftOf, start } from '../../workflow/clock';
 import { nextTicketNo } from '../../workflow/tickets';
 import { available, FINISHED } from '../../workflow/engine';
 import { forbidden } from '../../lib/errors';
@@ -102,9 +102,8 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
       }).output('inserted.id').executeTakeFirstOrThrow();
       await tx.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'created', payload: JSON.stringify({ kind: body.kind, ...(parent ? { parentTaskId: parent.id } : {}) }) }).execute();
       if (parent) {
-        // The parent waits for the other department; its clock pauses (Ornate: Waiting for Another Dept).
-        const shift = shiftOf((await tx.selectFrom('users').select('shift').where('id', '=', me.id).executeTakeFirst())?.shift);
-        await tx.updateTable('tasks').set({ status: 'WaitingDept', ...halt(parent, now, 'paused', shift, holidays), updated_at: now }).where('id', '=', parent.id).execute();
+        // The parent waits for the other department (its clock keeps counting: no pauses, owner decision 27 Nov).
+        await tx.updateTable('tasks').set({ status: 'WaitingDept', updated_at: now }).where('id', '=', parent.id).execute();
         await tx.insertInto('task_events').values({ task_id: parent.id, actor_id: me.id, type: 'handed_off', payload: JSON.stringify({ subTaskId: task.id, departmentId: thread.department_id }) }).execute();
       }
       await tx.updateTable('threads').set({ last_message_at: new Date(), updated_at: new Date() }).where('id', '=', thread.id).execute();
@@ -139,11 +138,22 @@ export async function withTasks(db: Db, messages: Message[], viewerId?: string) 
   ]);
   const warnings = await warningsFor(db, tasks);
   let actionsOf = (_t: Task): string[] => [];
+  let withWhom = (_t: Task): string | null => null;
   if (viewerId && tasks.length) {
     const [org, holidays, me, threads] = await Promise.all([loadOrg(db), loadHolidays(db),
       db.selectFrom('users').select(['id', 'role', 'department_id', 'team_id']).where('id', '=', viewerId).executeTakeFirst(),
       db.selectFrom('threads').selectAll().where('id', 'in', [...new Set(tasks.map((t) => t.thread_id))]).execute()]);
     const now = new Date();
+    // "assigned to Kunal Mehta" / "Ornate team" / "Development" for the sender's statement.
+    withWhom = (t) => {
+      const name = (id: string | null | undefined) => org.users.find((u) => u.id === id)?.name;
+      const th = threads.find((x) => x.id === t.thread_id);
+      const sender = messages.find((m) => m.id === t.message_id)?.sender_id;
+      return name(t.assignee_id) ?? name(t.tagged_user_id)
+        ?? (th?.type === 'direct' ? name(th.user_a_id === sender ? th.user_b_id : th.user_a_id) : null)
+        ?? (t.team_id ? `${org.teams.find((x) => x.id === t.team_id)?.name ?? ''} team` : null)
+        ?? org.departments.find((d) => d.id === t.department_id)?.name ?? null;
+    };
     if (me) actionsOf = (t) => available({ db, env: undefined as never, org, holidays, now, me, task: t,
       thread: threads.find((x) => x.id === t.thread_id)!, senderId: messages.find((m) => m.id === t.message_id)!.sender_id });
   }
@@ -151,7 +161,7 @@ export async function withTasks(db: Db, messages: Message[], viewerId?: string) 
     const task = tasks.find((t) => t.message_id === m.id);
     return {
       message: messageDto(m, atts.filter((a) => a.message_id === m.id) as AttachmentRow[]),
-      task: task ? taskDto(task, warnings.get(task.id) ?? [], actionsOf(task)) : null,
+      task: task ? { ...taskDto(task, warnings.get(task.id) ?? [], actionsOf(task)), assignedTo: withWhom(task) } : null,
     };
   });
 }
@@ -236,9 +246,7 @@ export async function subtaskSettled(db: Db, sub: Pick<Task, 'id' | 'parent_task
   const open = await db.selectFrom('tasks').select('id').where('parent_task_id', '=', p.id)
     .where('status', 'not in', [...FINISHED, 'Completed', 'Verified']).execute();
   if (p.status === 'WaitingDept' && !open.length) {
-    const holidays = await loadHolidays(db);
-    const shift = shiftOf((await db.selectFrom('users').select('shift').where('id', '=', p.assignee_id ?? '').executeTakeFirst())?.shift);
-    await db.updateTable('tasks').set({ status: 'InProgress', ...start(p, new Date(), shift, holidays), updated_at: new Date() }).where('id', '=', p.id).where('status', '=', 'WaitingDept').execute();
+    await db.updateTable('tasks').set({ status: 'InProgress', updated_at: new Date() }).where('id', '=', p.id).where('status', '=', 'WaitingDept').execute();
   }
   return p;
 }

@@ -101,7 +101,7 @@ describe('/subtask to another department', () => {
     expect(sub.body.task.parentTaskId).toBe(parent);
     const p = (await as('kunal').get(`/v1/tasks/${parent}`)).body.task;
     expect(p.status).toBe('WaitingDept');
-    expect(p.dueAt).toBeNull();
+    expect(p.clock.state).toBe('running'); // no pauses (owner decision 27 Nov)
     expect(sub.body.task.ticketNo).toBe(`${p.ticketNo}/T2`);
     const hist = (await as('kunal').get(`/v1/tasks/${parent}/history`)).body;
     expect(hist.subTasks).toHaveLength(1);
@@ -123,7 +123,7 @@ describe('/subtask to another department', () => {
 });
 
 describe('edit while Open', () => {
-  it('the sender rewrites the message and the AI reads it again', async () => {
+  it.skip('(removed 27 Nov: senders get no buttons) the sender rewrites the message and the AI reads it again', async () => {
     const { taskId } = await send('riya', { targetType: 'department', targetId: dev }, 'Prnting broken');
     t.fakes.llm.answer = (i) => ({ subject: 'Edited subject', module: i.modules[0], customer_name: null, customer_phone: null, customer_location: null, license_no: null, priority: 'High', details: i.text });
     const r = await as('riya').post(`/v1/tasks/${taskId}/actions/edit`, { text: 'Printing broken at Mehta Traders, urgent' });
