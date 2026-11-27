@@ -10,25 +10,39 @@ external JSObject? get _claude;
 
 class ClaudeSpeech implements SpeechHost {
   JSObject? _dictation, _tts;
+  /// What the person-picker shows: checking, ready, or why not.
+  String status = 'Checking for speech…';
+  void Function()? onStatus;
+  void _set(String s) { status = s; onStatus?.call(); }
   void Function(String)? _onPartial, _onFinal;
   void Function(bool)? _onListening;
 
   /// Asks the viewer's page host for both capabilities; null (not on claude.ai, or not offered) leaves [ready] false.
   Future<void> load() async {
-    final c = _claude;
-    if (c == null) return;
+    // The page host may provide `claude` a little after the app starts: keep looking for 15 s.
+    var c = _claude;
+    for (var i = 0; c == null && i < 50; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      c = _claude;
+    }
+    if (c == null) return _set('Speech works only on the claude.ai link (Chrome or Edge).');
+    final host = c;
     Future<JSObject?> use(String name) async {
-      try { return await c.callMethod<JSPromise<JSObject?>>('use'.toJS, name.toJS).toDart; } catch (_) { return null; }
+      try { return await host.callMethod<JSPromise<JSObject?>>('use'.toJS, name.toJS).toDart; } catch (_) { return null; }
     }
     _dictation = await use('dictation');
     _tts = await use('tts');
     final d = _dictation;
-    if (d == null) return;
+    if (d == null) return _set('Speech is not offered here. Use Chrome or Edge on a computer, signed in to claude.ai in your organization.');
     String text(JSObject e) => (e['text'] as JSString?)?.toDart ?? '';
     d.callMethod('onPartial'.toJS, ((JSObject e) => _onPartial?.call(text(e))).toJS);
     d.callMethod('onFinal'.toJS, ((JSObject e) => _onFinal?.call(text(e))).toJS);
     d.callMethod('onState'.toJS, ((JSObject e) => _onListening?.call((e['state'] as JSString?)?.toDart != 'idle')).toJS);
+    _set(_tts == null ? 'Speech ready (read-aloud not offered in this browser).' : 'Speech ready: dictation and voice notes work.');
   }
+
+  @override
+  String get why => status;
 
   @override
   bool get ready => _dictation != null;

@@ -23,6 +23,8 @@ const maxVoiceSeconds = 180;
 /// Speech from the page host instead of the phone's microphone (the browser demo on claude.ai, which can't record audio).
 abstract class SpeechHost {
   bool get ready;
+  /// Why speech isn't ready yet (shown when someone taps a mic).
+  String get why;
   bool get canSpeak;
   void start({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(bool) onListening,
       required void Function(String) onError});
@@ -271,6 +273,7 @@ class _ComposerState extends ConsumerState<Composer> {
       );
       return;
     }
+    if (h != null) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(h.why))); return; }
     if (_listening) { await _speech.stop(); setState(() => _listening = false); return; }
     if (!await _speech.initialize(onStatus: (s) { if (s == 'done' || s == 'notListening') setState(() => _listening = false); })) return;
     final base = _text.text;
@@ -415,8 +418,9 @@ class _ComposerState extends ConsumerState<Composer> {
                   ? IconButton.filled(key: const Key('send-voice'), tooltip: 'Send voice note', icon: const Icon(Icons.send), onPressed: () => _stopHostVoice(send: true))
                   : hasText || _files.isNotEmpty
                   ? IconButton.filled(key: const Key('send'), tooltip: 'Send', icon: const Icon(Icons.send), onPressed: _send)
-                  : speechHost?.ready == true
-                  ? IconButton.filled(key: const Key('record'), tooltip: 'Tap to start a voice note', iconSize: 26, icon: const Icon(Icons.mic), onPressed: _startHostVoice)
+                  : speechHost != null
+                  ? IconButton.filled(key: const Key('record'), tooltip: 'Tap to start a voice note', iconSize: 26, icon: const Icon(Icons.mic),
+                      onPressed: () => speechHost!.ready ? _startHostVoice() : ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(speechHost!.why))))
                   : GestureDetector(
                       key: const Key('record'),
                       onLongPressStart: (_) => _startRecording(),

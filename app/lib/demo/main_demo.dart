@@ -20,6 +20,8 @@ import 'demo_backend.dart';
 import 'claude_speech.dart';
 import '../features/composer/composer.dart' show speechHost;
 
+final demoSpeech = ClaudeSpeech();
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   AppConfig.apiBaseUrl = 'https://demo.local';
@@ -28,9 +30,8 @@ void main() {
   final api = DemoApi();
   loginPage = () => const DemoLogin();
   // On claude.ai: dictation and read-aloud come from the page host (asked for in the background; the app starts at once).
-  final speech = ClaudeSpeech();
-  speechHost = speech;
-  unawaited(speech.load());
+  speechHost = demoSpeech;
+  unawaited(demoSpeech.load());
   runApp(ProviderScope(overrides: [
     tokenStoreProvider.overrideWithValue(MemoryTokenStore()),
     apiClientProvider.overrideWith((ref) => ApiClient(baseUrl: AppConfig.apiBaseUrl, tokens: ref.watch(tokenStoreProvider),
@@ -114,6 +115,8 @@ class DemoLogin extends ConsumerWidget {
         Text('Task Plus', style: t.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
         Text('Demo with sample data. Choose who to be; sign out on the You page to switch.', style: t.textTheme.bodyMedium),
+        const SizedBox(height: 6),
+        const _SpeechStatus(),
         const SizedBox(height: 16),
         for (final (phone, name, role) in _people)
           Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(
@@ -125,4 +128,26 @@ class DemoLogin extends ConsumerWidget {
       ])))),
     );
   }
+}
+
+/// Shows whether dictation and voice notes can work in this browser.
+class _SpeechStatus extends StatefulWidget {
+  const _SpeechStatus();
+  @override
+  State<_SpeechStatus> createState() => _SpeechStatusState();
+}
+
+class _SpeechStatusState extends State<_SpeechStatus> {
+  @override
+  void initState() {
+    super.initState();
+    demoSpeech.onStatus = () { if (mounted) setState(() {}); };
+  }
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Icon(demoSpeech.ready ? Icons.mic : Icons.mic_off, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        const SizedBox(width: 6),
+        Expanded(child: Text(demoSpeech.status, key: const Key('speech-status'), style: Theme.of(context).textTheme.bodySmall)),
+      ]);
 }
