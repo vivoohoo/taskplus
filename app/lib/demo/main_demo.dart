@@ -31,7 +31,8 @@ void main() {
   loginPage = () => const DemoLogin();
   // On claude.ai: dictation and read-aloud come from the page host (asked for in the background; the app starts at once).
   speechHost = demoSpeech;
-  unawaited(demoSpeech.load());
+  // Not on claude.ai (e.g. on Vercel): the browser's own microphone and speech recognition take over.
+  unawaited(demoSpeech.load().then((_) { if (!demoSpeech.onClaude) speechHost = null; }));
   runApp(ProviderScope(overrides: [
     tokenStoreProvider.overrideWithValue(MemoryTokenStore()),
     apiClientProvider.overrideWith((ref) => ApiClient(baseUrl: AppConfig.apiBaseUrl, tokens: ref.watch(tokenStoreProvider),
@@ -52,7 +53,7 @@ class MemoryOutbox extends OutboxSender {
   Future<void> add(Draft d) async {
     _drafts[d.clientMsgId] = d;
     try {
-      onSent?.call(await repo.send(d, attachmentKeys: const []));
+      onSent?.call(await repo.send(d, audioKey: d.audioPath, attachmentKeys: const []));
       _drafts.remove(d.clientMsgId);
     } on ApiException catch (e) {
       _failed.add(OutboxRow(clientMsgId: d.clientMsgId, threadId: d.threadId, kind: d.kind, bodyText: d.bodyText, attachmentPaths: '[]', overrides: '{}',
@@ -146,7 +147,7 @@ class _SpeechStatusState extends State<_SpeechStatus> {
 
   @override
   Widget build(BuildContext context) => Row(children: [
-        Icon(demoSpeech.ready ? Icons.mic : Icons.mic_off, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        Icon(demoSpeech.ready || demoSpeech.status.startsWith('Using') ? Icons.mic : Icons.mic_off, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
         const SizedBox(width: 6),
         Expanded(child: Text(demoSpeech.status, key: const Key('speech-status'), style: Theme.of(context).textTheme.bodySmall)),
       ]);

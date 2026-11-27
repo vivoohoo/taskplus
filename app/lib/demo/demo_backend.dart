@@ -192,7 +192,7 @@ class DemoBackend {
     if (overrides['priority'] != null) priority = overrides['priority']!;
     if (overrides['module'] != null) module = overrides['module'];
     if (overrides['customer'] != null) customer = overrides['customer'];
-    final words = text.replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ').split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(7).join(' ');
+    final words = text.replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}\s]', unicode: true), ' ').split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(7).join(' ');
     final subject = '${module ?? 'Request'}: ${words.length > 48 ? words.substring(0, 48) : words}';
     return {'subject': subject.length > 60 ? subject.substring(0, 60) : subject, 'module': module ?? 'Other', 'customerName': customer, 'customerPhone': phone,
       'customerLocation': location, 'licenseNo': overrides['license'] ?? licence, 'priority': priority, 'details': text};
@@ -225,11 +225,12 @@ class DemoBackend {
     final text = (body['bodyText'] as String?)?.trim();
     if (body['kind'] == 'text' && (text == null || text.isEmpty)) throw _Err(400, 'BAD_REQUEST', 'Type a message.');
     final voice = body['kind'] == 'voice';
-    if (voice && (text == null || text.isEmpty)) throw _Err(400, 'BAD_REQUEST', 'Nothing was heard. Try again.');
+    final recorded = voice && '${body['audioKey']}'.startsWith('blob:');
+    if (voice && !recorded && (text == null || text.isEmpty)) throw _Err(400, 'BAD_REQUEST', 'Nothing was heard. Try again.');
     final m = {'id': _id('M'), 'thread': th['id'], 'sender': me['id'], 'clientMsgId': body['clientMsgId'] ?? _id('c'), 'kind': body['kind'] ?? 'text',
       'bodyText': voice ? null : text, 'replyTo': body['replyToTaskId'], 'at': when.toIso8601String(),
       // Demo voice note: the words heard stand in for the audio (claude.ai pages can't record).
-      if (voice) ...{'transcript': text, 'audioKey': 'demo:speech', 'duration': body['audioDurationS'] ?? 1}};
+      if (voice) ...{'transcript': recorded ? null : text, 'audioKey': recorded ? body['audioKey'] : 'demo:speech', 'duration': body['audioDurationS'] ?? 1}};
     messages.add(m);
     th['last'] = when.toIso8601String();
     if (body['replyToTaskId'] != null) {
@@ -248,7 +249,8 @@ class DemoBackend {
     final note = th['type'] == 'self';
     final dept = note ? me['dept'] as String? : th['dept'] as String? ?? _user(th['a'] == me['id'] ? th['b'] : th['a'])['dept'] as String?;
     final overrides = Map<String, String>.from((body['overrides'] as Map?) ?? const {});
-    final s = structure(text ?? '', List<String>.from(_dept(dept)['modules'] as List), overrides);
+    // A recorded voice note has no words in the demo (the real app transcribes it on the server).
+    final s = structure(text ?? (voice ? 'Voice note' : ''), List<String>.from(_dept(dept)['modules'] as List), overrides);
     final ticketNo = parent != null ? '${parent['ticketNo']}/T${tasks.where((x) => x['parent'] == parent['id']).length + 2}' : 'ORN-SS-2627-${(++_ticket).toString().padLeft(5, '0')}';
     final t = {'id': _id('TK'), 'message': m['id'], 'thread': th['id'], 'ticketNo': ticketNo, 'parent': parent?['id'], 'note': note,
       ...s, 'status': 'Open', 'assignee': null, 'tagged': body['taggedUserId'], 'dept': th['dept'], 'team': th['team'], 'aiStatus': 'done',

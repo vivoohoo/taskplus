@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Task Plus Demo</title>
+<link rel="icon" href="favicon.png">
+<style>
+:root{color-scheme:light dark;--bg:#ffffff;--ink:#111b21;--accent:#008069}
+@media (prefers-color-scheme: dark){:root{--bg:#111b21;--ink:#e9edef}}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+#boot{position:fixed;inset:0;display:grid;place-content:center;gap:12px;text-align:center;padding:0 16px}
+#boot b{font-size:28px;color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="boot"><b>Task Plus</b><span id="boot-msg">Loading the demo…</span></div>
+<script src="flutter.js"></script>
+<script>
+{
+_flutter.buildConfig = {"engineRevision":"4d35714800b9266b6693a58e1225ecd7e9e45ed7","wasmHashes":{"canvaskit.wasm":"f3c2ff164f324217ebe1d84900110e425c0195fc63f34e8b58de842a047e0c1c","chromium/canvaskit.wasm":"e269e717aad848981ed07db8573b4f7923ccd557d2e696f2944f541f4ff3df9f","skwasm.wasm":"eee8d9962314004a929380cfcc44ccdec7319710647529265fb9abd3a05cc2a7","skwasm_heavy.wasm":"7f038b46cf04e0237a80a506cfab62af7195d487a4a00949c99274737a88373b","webparagraph/canvaskit.wasm":"01f0337c620a2afe20b92578ab5ec8db8e5bb6eccdef751d30bac9d1d683988e","wimp.wasm":"01d9aac38a88f55db167d4318932f568a421a1a402b13585789bedecf5f731fd"},"builds":[{"compileTarget":"dart2js","renderer":"canvaskit","mainJsPath":"main.dart.js"},{}],"useLocalCanvasKit":true};
+const msg = document.getElementById('boot-msg');
+_flutter.loader.load({
+  config: { renderer: 'canvaskit', canvasKitVariant: 'full', canvasKitBaseUrl: 'canvaskit/', assetBase: './', entryPointBaseUrl: './' },
+  onEntrypointLoaded: async (engine) => {
+    await (await engine.initializeEngine()).runApp();
+    document.getElementById('boot').remove();
+  },
+}).catch((e) => { msg.textContent = 'The demo could not start: ' + e; });
+}
+</script>
+</body>
+</html>

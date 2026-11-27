@@ -45,7 +45,9 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> {
           if (s.processingState == ProcessingState.completed) { p.seek(Duration.zero); p.pause(); }
           if (mounted) setState(() => _playing = s.playing && s.processingState != ProcessingState.completed);
         });
-        if (widget.localPath != null) {
+        if (widget.audioKey.startsWith('blob:')) {
+          await p.setUrl(widget.audioKey); // browser demo recording, kept in this tab
+        } else if (widget.localPath != null) {
           await p.setFilePath(widget.localPath!);
         } else {
           await p.setUrl(await ref.read(repositoryProvider).fileUrl(widget.audioKey));

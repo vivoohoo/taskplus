@@ -11,6 +11,7 @@ external JSObject? get _claude;
 
 class ClaudeSpeech implements SpeechHost {
   JSObject? _dictation, _tts;
+  bool onClaude = false;
   /// What the person-picker shows: checking, ready, or why not.
   String status = 'Checking for speech…';
   void Function()? onStatus;
@@ -26,7 +27,8 @@ class ClaudeSpeech implements SpeechHost {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       c = _claude;
     }
-    if (c == null) return _set('Speech works only on the claude.ai link (Chrome or Edge).');
+    if (c == null) return _set('Using this browser\'s microphone (Chrome or Edge): dictation and voice notes.');
+    onClaude = true;
     final host = c;
     Future<JSObject?> use(String name) async {
       try { return await host.callMethod<JSPromise<JSObject?>>('use'.toJS, name.toJS).toDart; } catch (_) { return null; }

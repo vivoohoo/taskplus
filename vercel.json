@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "",
+  "outputDirectory": "demo-site",
+  "headers": [
+    { "source": "/(.*)", "headers": [{ "key": "Permissions-Policy", "value": "microphone=(self)" }] }
+  ]
+}

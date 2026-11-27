@@ -227,11 +227,15 @@ class _ComposerState extends ConsumerState<Composer> {
   }
 
   Future<void> _startRecording() async {
-    if (kIsWeb) return _phoneOnly('Voice notes');
-    if (!await _recorder.hasPermission()) return;
-    final dir = await getTemporaryDirectory();
-    final path = '${dir.path}/${const Uuid().v4()}.ogg';
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.opus, bitRate: 16000, numChannels: 1, sampleRate: 16000), path: path);
+    if (!await _recorder.hasPermission()) {
+      if (kIsWeb && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Allow the microphone for this site to record.')));
+      return;
+    }
+    // A browser records to memory (the path is ignored and stop() returns a blob: address); a phone to a file.
+    final path = kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/${const Uuid().v4()}.ogg';
+    // Browsers differ: Chrome records Opus, others may only manage WAV.
+    final enc = !kIsWeb || await _recorder.isEncoderSupported(AudioEncoder.opus) ? AudioEncoder.opus : AudioEncoder.wav;
+    await _recorder.start(RecordConfig(encoder: enc, bitRate: 16000, numChannels: 1, sampleRate: 16000), path: path);
     _startedAt = DateTime.now();
     setState(() { _recording = true; _cancelling = false; _seconds = 0; });
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -250,7 +254,7 @@ class _ComposerState extends ConsumerState<Composer> {
     if (send && secs >= 1) {
       _send(audioPath: path, audioSeconds: secs);
     } else {
-      File(path).delete().ignore();
+      if (!kIsWeb) File(path).delete().ignore();
     }
   }
 
