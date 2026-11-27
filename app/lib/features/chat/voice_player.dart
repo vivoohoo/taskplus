@@ -3,6 +3,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../data/providers.dart';
+import '../composer/composer.dart';
 
 String mmss(int s) => '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
 
@@ -24,6 +25,18 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> {
   bool _playing = false;
 
   Future<void> _toggle() async {
+    // Browser demo: the "recording" is the words heard; Claude's voice reads them.
+    final h = speechHost;
+    if (widget.audioKey.startsWith('demo:') || (h != null && widget.localPath == null && widget.audioKey.isEmpty)) {
+      if (h == null || !h.canSpeak || widget.transcript == null) {
+        setState(() => _showText = true);
+        return;
+      }
+      if (_playing) { h.stopSpeaking(); setState(() => _playing = false); return; }
+      setState(() => _playing = true);
+      try { await h.speak(widget.transcript!); } catch (_) {} finally { if (mounted) setState(() => _playing = false); }
+      return;
+    }
     if (_playing) { await _player?.pause(); return; }
     try {
       if (_player == null) {

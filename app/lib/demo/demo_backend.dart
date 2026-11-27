@@ -224,9 +224,12 @@ class DemoBackend {
     if (dup != null) return _item(dup, me['id'] as String);
     final text = (body['bodyText'] as String?)?.trim();
     if (body['kind'] == 'text' && (text == null || text.isEmpty)) throw _Err(400, 'BAD_REQUEST', 'Type a message.');
-    if (body['kind'] == 'voice') throw _Err(400, 'BAD_REQUEST', 'Voice notes need the phone app (the browser demo has no microphone).');
+    final voice = body['kind'] == 'voice';
+    if (voice && (text == null || text.isEmpty)) throw _Err(400, 'BAD_REQUEST', 'Nothing was heard. Try again.');
     final m = {'id': _id('M'), 'thread': th['id'], 'sender': me['id'], 'clientMsgId': body['clientMsgId'] ?? _id('c'), 'kind': body['kind'] ?? 'text',
-      'bodyText': text, 'replyTo': body['replyToTaskId'], 'at': when.toIso8601String()};
+      'bodyText': voice ? null : text, 'replyTo': body['replyToTaskId'], 'at': when.toIso8601String(),
+      // Demo voice note: the words heard stand in for the audio (claude.ai pages can't record).
+      if (voice) ...{'transcript': text, 'audioKey': 'demo:speech', 'duration': body['audioDurationS'] ?? 1}};
     messages.add(m);
     th['last'] = when.toIso8601String();
     if (body['replyToTaskId'] != null) {
@@ -272,7 +275,7 @@ class DemoBackend {
       events.add({'task': t['id'], 'by': by, 'type': type, 'payload': payload, 'at': (at ?? now()).toIso8601String()});
 
   Map<String, dynamic> _messageJson(Map<String, dynamic> m) => {'id': m['id'], 'threadId': m['thread'], 'senderId': m['sender'], 'clientMsgId': m['clientMsgId'],
-    'kind': m['kind'], 'bodyText': m['bodyText'], 'attachments': [], 'replyToTaskId': m['replyTo'], 'createdAt': m['at']};
+    'kind': m['kind'], 'bodyText': m['bodyText'], 'transcript': m['transcript'], 'audioKey': m['audioKey'], 'audioDurationS': m['duration'], 'attachments': [], 'replyToTaskId': m['replyTo'], 'createdAt': m['at']};
 
   Map<String, dynamic> _taskJson(Map<String, dynamic> t, String viewer) => {'id': t['id'], 'ticketNo': t['ticketNo'], 'messageId': t['message'], 'threadId': t['thread'],
     'subject': t['subject'], 'module': t['module'], 'customerName': t['customerName'], 'customerPhone': t['customerPhone'],
@@ -468,7 +471,7 @@ class DemoBackend {
     final orig = _msg(t['message'] as String);
     final requester = _user(orig['sender'] as String);
     final th = _open(requester, {'targetType': 'department', 'targetId': deptId});
-    _create(requester, th, {'kind': 'text', 'bodyText': orig['bodyText'], 'clientMsgId': _id('moved')});
+    _create(requester, th, {'kind': 'text', 'bodyText': orig['bodyText'] ?? orig['transcript'], 'clientMsgId': _id('moved')});
   }
 
   String doneWord(String type) => type.replaceAll('_', ' ');
@@ -525,7 +528,7 @@ class DemoBackend {
     final ev = events.where((e) => e['task'] == t['id'] && !const ['created', 'structured'].contains(e['type'])).lastOrNull;
     final lastOut = ev != null && (ev['at'] as String).compareTo(last['at'] as String) > 0
         ? {'kind': 'event', 'type': ev['type'], 'payload': ev['payload'], 'text': '', 'at': ev['at']}
-        : {'kind': 'message', 'text': '$by: ${last['bodyText'] ?? 'Voice message'}', 'mine': last['sender'] == me['id'], 'at': last['at']};
+        : {'kind': 'message', 'text': '$by: ${last['bodyText'] ?? last['transcript'] ?? 'Voice message'}', 'mine': last['sender'] == me['id'], 'at': last['at']};
     return {..._item(_msg(t['message'] as String), me['id'] as String), 'party': _party(me, t), 'overdue': !_note(t) && _overdue(t), 'requesterId': _sender(t),
       'last': lastOut};
   }

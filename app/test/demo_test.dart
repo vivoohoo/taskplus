@@ -80,6 +80,11 @@ void main() {
     final notes = await riya.threadFor('self');
     final n = await riya.send(Draft(clientMsgId: 'n1', threadId: notes.id, kind: 'text', bodyText: 'Remember the renewal'));
     expect(n.task!.isNote, true);
+    // Demo voice note: the words heard stand in for the audio.
+    final v = await riya.send(Draft(clientMsgId: 'v1', threadId: notes.id, kind: 'voice', bodyText: 'Call Mehta Traders at 4 pm', audioDurationS: 3));
+    expect(v.message.kind, 'voice');
+    expect(v.message.transcript, 'Call Mehta Traders at 4 pm');
+    expect(v.message.audioKey, 'demo:speech');
     expect((await riya.caseOf(n.task!.id)).party.key, 'self');
 
     final dev = b.depts.firstWhere((d) => d['name'] == 'Development')['id'] as String;

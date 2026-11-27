@@ -17,6 +17,8 @@ import '../data/providers.dart';
 import '../data/repository.dart';
 import '../main.dart';
 import 'demo_backend.dart';
+import 'claude_speech.dart';
+import '../features/composer/composer.dart' show speechHost;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +27,10 @@ void main() {
   AppTheme.fallback = const ['NotoSansDevanagari', 'NotoSansGujarati'];
   final api = DemoApi();
   loginPage = () => const DemoLogin();
+  // On claude.ai: dictation and read-aloud come from the page host (asked for in the background; the app starts at once).
+  final speech = ClaudeSpeech();
+  speechHost = speech;
+  unawaited(speech.load());
   runApp(ProviderScope(overrides: [
     tokenStoreProvider.overrideWithValue(MemoryTokenStore()),
     apiClientProvider.overrideWith((ref) => ApiClient(baseUrl: AppConfig.apiBaseUrl, tokens: ref.watch(tokenStoreProvider),

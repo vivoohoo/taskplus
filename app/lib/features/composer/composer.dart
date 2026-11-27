@@ -19,6 +19,20 @@ import '../chat/voice_player.dart';
 import '../slash/slash.dart';
 
 const maxVoiceSeconds = 180;
+
+/// Speech from the page host instead of the phone's microphone (the browser demo on claude.ai, which can't record audio).
+abstract class SpeechHost {
+  bool get ready;
+  bool get canSpeak;
+  void start({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(bool) onListening,
+      required void Function(String) onError});
+  Future<void> stop();
+  Future<void> speak(String text);
+  void stopSpeaking();
+}
+
+/// Set by the browser demo. Null on phones: they record real audio.
+SpeechHost? speechHost;
 const dictationLocales = {'en_IN': 'English', 'hi_IN': 'हिंदी', 'gu_IN': 'ગુજરાતી'};
 
 /// Bottom-pinned input: text with / commands and @mentions, dictation, hold-to-record voice notes, attachments.
@@ -59,6 +73,9 @@ class _ComposerState extends ConsumerState<Composer> {
   int _seconds = 0;
   Timer? _tick;
   DateTime? _startedAt;
+
+  // Voice note in the browser demo: the words heard so far.
+  String _heard = '', _partial = '';
 
   // Dictation
   final _speech = SpeechToText();
@@ -177,6 +194,36 @@ class _ComposerState extends ConsumerState<Composer> {
   // ---- voice note: hold to record, slide left to cancel, release to send ----
   void _phoneOnly(String what) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$what need the phone app.')));
 
+  /// Browser demo: tap to start a voice note; the host turns speech into words.
+  void _startHostVoice() {
+    final h = speechHost!;
+    _heard = ''; _partial = '';
+    _startedAt = DateTime.now();
+    setState(() { _recording = true; _cancelling = false; _seconds = 0; });
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() => _seconds = DateTime.now().difference(_startedAt!).inSeconds); });
+    h.start(
+      onPartial: (t) { if (mounted) setState(() => _partial = t); },
+      onFinal: (t) { if (mounted) setState(() { _heard = '$_heard $t'.trim(); _partial = ''; }); },
+      onListening: (_) {},
+      onError: (m) { _tick?.cancel(); if (mounted) { setState(() => _recording = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m))); } },
+    );
+  }
+
+  Future<void> _stopHostVoice({required bool send}) async {
+    _tick?.cancel();
+    await speechHost!.stop();
+    final words = '$_heard $_partial'.trim();
+    final secs = DateTime.now().difference(_startedAt!).inSeconds.clamp(1, maxVoiceSeconds);
+    if (!mounted) return;
+    setState(() { _recording = false; _heard = ''; _partial = ''; });
+    if (!send) return;
+    if (words.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing was heard. Try again.'))); return; }
+    widget.onSend(Draft(clientMsgId: const Uuid().v4(), threadId: widget.threadId, kind: 'voice', bodyText: words, audioDurationS: secs,
+        overrides: Map.of(_overrides), taggedUserId: _tagged?.id, replyToTaskId: widget.replyTo?.id));
+    widget.onCancelReply?.call();
+    setState(() { _overrides.clear(); _tagged = null; });
+  }
+
   Future<void> _startRecording() async {
     if (kIsWeb) return _phoneOnly('Voice notes');
     if (!await _recorder.hasPermission()) return;
@@ -207,6 +254,23 @@ class _ComposerState extends ConsumerState<Composer> {
 
   // ---- dictation ----
   Future<void> _toggleDictation() async {
+    final h = speechHost;
+    if (h != null && h.ready) {
+      if (_listening) { await h.stop(); if (mounted) setState(() => _listening = false); return; }
+      var base = _text.text;
+      void show(String extra) {
+        final s = [base, extra].where((x) => x.trim().isNotEmpty).join(' ');
+        _text.value = TextEditingValue(text: s, selection: TextSelection.collapsed(offset: s.length));
+      }
+      setState(() => _listening = true);
+      h.start(
+        onPartial: show,
+        onFinal: (t) { base = [base, t].where((x) => x.trim().isNotEmpty).join(' '); show(''); },
+        onListening: (on) { if (mounted && !on) setState(() => _listening = false); },
+        onError: (m) { if (mounted) { setState(() => _listening = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m))); } },
+      );
+      return;
+    }
     if (_listening) { await _speech.stop(); setState(() => _listening = false); return; }
     if (!await _speech.initialize(onStatus: (s) { if (s == 'done' || s == 'notListening') setState(() => _listening = false); })) return;
     final base = _text.text;
@@ -312,7 +376,14 @@ class _ComposerState extends ConsumerState<Composer> {
             padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
             child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
               Expanded(
-                child: _recording
+                child: _recording && speechHost?.ready == true
+                    ? Row(children: [
+                        IconButton(key: const Key('cancel-voice'), tooltip: 'Cancel voice note', icon: const Icon(Icons.delete_outline), onPressed: () => _stopHostVoice(send: false)),
+                        Expanded(child: Text(
+                          '${mmss(_seconds)}  ${'$_heard $_partial'.trim().isEmpty ? 'Listening… speak now' : '$_heard $_partial'.trim()}',
+                          maxLines: 2, overflow: TextOverflow.ellipsis)),
+                      ])
+                    : _recording
                     ? _RecordingBar(seconds: _seconds, cancelling: _cancelling)
                     : Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                     IconButton(tooltip: 'Attach', icon: const Icon(Icons.attach_file), onPressed: _attach),
@@ -340,8 +411,12 @@ class _ComposerState extends ConsumerState<Composer> {
               ),
               const SizedBox(width: 4),
               // Stays mounted while recording, so the hold gesture isn't lost.
-              hasText || _files.isNotEmpty
+              _recording && speechHost?.ready == true
+                  ? IconButton.filled(key: const Key('send-voice'), tooltip: 'Send voice note', icon: const Icon(Icons.send), onPressed: () => _stopHostVoice(send: true))
+                  : hasText || _files.isNotEmpty
                   ? IconButton.filled(key: const Key('send'), tooltip: 'Send', icon: const Icon(Icons.send), onPressed: _send)
+                  : speechHost?.ready == true
+                  ? IconButton.filled(key: const Key('record'), tooltip: 'Tap to start a voice note', iconSize: 26, icon: const Icon(Icons.mic), onPressed: _startHostVoice)
                   : GestureDetector(
                       key: const Key('record'),
                       onLongPressStart: (_) => _startRecording(),
