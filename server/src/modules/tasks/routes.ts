@@ -7,7 +7,7 @@ import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { Id, parse } from '../../lib/validate';
 import { canSeeThread, currentUser, otherUserId, threadRooms } from '../access';
 import { taskDto } from '../dto';
-import { loadMessage, warningsFor, withTasks } from '../messages/service';
+import { loadMessage, subtaskSettled, warningsFor, withTasks } from '../messages/service';
 import { loadHolidays } from '../../workflow/clock';
 import { ACTIONS, run, type Action, type Ctx } from '../../workflow/engine';
 import { loadOrg, manages, teamsLedBy } from '../org';
@@ -56,6 +56,14 @@ export async function taskRoutes(app: FastifyInstance) {
     await db.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: r.type, payload: JSON.stringify(r.payload) }).execute();
     const to = [...new Set(r.push?.to ?? [])].filter((x) => x && x !== me.id);
     const dto = await changed(task, thread, senderId, { type: r.type, payload: r.payload }, to.length ? { kind: 'status', to, text: r.push!.text, category: kindOf(r.type) } : undefined, me.id);
+    if (r.restructure) await app.services.jobs.enqueue('structure', { taskId: task.id }, { jobId: `structure:${task.id}:${Date.now()}` });
+    // A sub-task that just ended moves its parent on (Ornate).
+    if (task.parent_task_id && ['Completed', 'Rejected', 'Cancelled', 'Transferred'].includes(dto.status)) await settled(task, me.id);
+    for (const sid of r.cancelledSubs ?? []) {
+      const sub = await db.selectFrom('tasks').selectAll().where('id', '=', sid).executeTakeFirstOrThrow();
+      const sth = await db.selectFrom('threads').selectAll().where('id', '=', sub.thread_id).executeTakeFirstOrThrow();
+      app.services.realtime.emit(threadRooms(sth), 'task.updated', { task: taskDto(sub), event: { type: 'cancelled', payload: { reason: 'No longer needed' } } });
+    }
     if (r.newTaskId) {
       const nt = await db.selectFrom('tasks').select(['id', 'message_id', 'thread_id']).where('id', '=', r.newTaskId).executeTakeFirstOrThrow();
       const nthread = await db.selectFrom('threads').selectAll().where('id', '=', nt.thread_id).executeTakeFirstOrThrow();
@@ -63,6 +71,15 @@ export async function taskRoutes(app: FastifyInstance) {
       await app.services.jobs.enqueue('notify', { taskId: nt.id, kind: 'created' }, { jobId: `notify:${nt.id}:created` });
     }
     return { task: dto };
+  }
+
+  async function settled(sub: Task, actorId: string) {
+    const p = await subtaskSettled(db, sub, actorId);
+    if (!p) return;
+    const fresh = await db.selectFrom('tasks').selectAll().where('id', '=', p.id).executeTakeFirstOrThrow();
+    const pth = await db.selectFrom('threads').selectAll().where('id', '=', p.thread_id).executeTakeFirstOrThrow();
+    app.services.realtime.emit([...threadRooms(pth), ...(p.assignee_id ? [`user:${p.assignee_id}`] : [])], 'task.updated', { task: taskDto(fresh), event: { type: 'subtask_done', payload: { subTaskId: sub.id } } });
+    if (p.assignee_id) await app.services.jobs.enqueue('notify', { taskId: p.id, kind: 'status', toUserIds: [p.assignee_id], text: `sub-task ${sub.ticket_no ?? ''} finished` }, { jobId: `notify:${p.id}:sub:${sub.id}` });
   }
 
   /** One task with this viewer's buttons: the app re-reads it after a live event (events are shared by many viewers). */

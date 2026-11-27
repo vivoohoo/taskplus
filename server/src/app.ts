@@ -16,6 +16,7 @@ import { authRoutes } from './modules/auth/routes';
 import { departmentRoutes } from './modules/departments/routes';
 import { peopleRoutes } from './modules/people/routes';
 import { analyticsRoutes } from './modules/analytics/routes';
+import { caseRoutes } from './modules/cases/routes';
 import { messageRoutes } from './modules/messages/routes';
 import { taskRoutes } from './modules/tasks/routes';
 import { threadRoutes } from './modules/threads/routes';
@@ -116,6 +117,7 @@ export async function buildApp({ env, db, logger, providers, metrics = createMet
     await v1.register(departmentRoutes);
     await v1.register(peopleRoutes);
     await v1.register(analyticsRoutes);
+    await v1.register(caseRoutes);
   }, { prefix: '/v1' });
   return app;
 }

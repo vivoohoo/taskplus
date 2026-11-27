@@ -58,6 +58,8 @@ export const taskDto = (t: Task, warnings: string[] = [], actions: string[] = []
   reassignRequestedBy: t.reassign_requested_by,
   request: parseJson<Record<string, unknown> | null>(t.request, null),
   transferredFromId: t.transferred_from_id,
+  parentTaskId: t.parent_task_id,
+  isNote: t.department_id === null && t.assignee_id !== null && t.queued_at === null,
   /** The buttons this viewer gets (the server's rules). */
   actions,
   closedAt: iso(t.closed_at),

@@ -22,7 +22,7 @@ export async function uploadRoutes(app: FastifyInstance) {
     if (!type || type.purpose !== body.purpose) throw badRequest('This file type is not allowed. Use JPEG, PNG, PDF, or an OGG/Opus or M4A voice note.');
     const me = await currentUser(db, req.userId);
     const thread = await threadFor(db, me, body.threadId);
-    const key = storageKey(thread.type === 'direct' ? 'direct' : thread.department_id!, type.ext);
+    const key = storageKey(thread.type === 'department' ? thread.department_id! : 'direct', type.ext);
     return app.services.storage.presignUpload(key, body.mime, body.sizeBytes, app.env.PRESIGN_TTL_SECONDS);
   });
 

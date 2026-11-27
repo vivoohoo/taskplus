@@ -7,13 +7,13 @@ type Json<T> = ColumnType<T, string, string>; // stored as nvarchar(max) JSON te
 
 export type Role = 'staff' | 'team_lead' | 'dept_head' | 'admin';
 export type Priority = 'Critical' | 'High' | 'Medium' | 'Low';
-export type TaskStatus = 'Open' | 'Accepted' | 'InProgress' | 'WaitingInfo' | 'Blocked' | 'Completed' | 'Verified' | 'Closed' | 'Rejected' | 'Transferred' | 'Cancelled';
+export type TaskStatus = 'Open' | 'Accepted' | 'InProgress' | 'WaitingInfo' | 'WaitingDept' | 'Blocked' | 'Completed' | 'Verified' | 'Closed' | 'Rejected' | 'Transferred' | 'Cancelled';
 export type AiStatus = 'pending' | 'done' | 'needs_review';
 export type MessageKind = 'text' | 'voice' | 'attachment';
 export type TaskEventType = 'created' | 'structured' | 'accepted' | 'reassigned' | 'status_changed' | 'closed'
   | 'cancelled' | 'edited' | 'assigned' | 'declined' | 'reassign_asked' | 'reassign_refused' | 'completed' | 'verified' | 'reopened'
   | 'question' | 'answered' | 'blocked' | 'unblocked' | 'request' | 'request_refused' | 'rejected' | 'transferred' | 'escalated' | 'attended'
-  | 'priority_changed' | 'warned';
+  | 'priority_changed' | 'warned' | 'handed_off' | 'subtask_done' | 'subs_cancelled';
 
 export type ClockState = 'not started' | 'running' | 'paused' | 'stopped';
 export type EscalationLevel = 'team_lead' | 'dept_head' | 'management';
@@ -36,7 +36,7 @@ export interface Database {
   teams: { id: Id; department_id: string; name: string; lead_id: string | null; created_at: Stamp };
   device_tokens: { id: Id; user_id: string; fcm_token: string; platform: 'android' | 'ios'; last_seen_at: Stamp };
   threads: {
-    id: Id; type: 'direct' | 'department';
+    id: Id; type: 'direct' | 'department' | 'self';                 // self: private notes
     user_a_id: string | null; user_b_id: string | null;       // direct: sorted pair
     requester_id: string | null; department_id: string | null; // department
     team_id: Generated<string | null>;                          // department chat addressed to one team
@@ -63,8 +63,9 @@ export interface Database {
     escalated_to: Generated<string>; auto_escalated_at: Generated<Date | null>; head_alerted: Generated<boolean>;
     reassign_requested_by: Generated<string | null>; reassign_asked: Generated<string>; declined_by: Generated<string>;
     request: Generated<string | null>; warned: Generated<string>; transferred_from_id: Generated<string | null>;
-    ticket_no: Generated<string | null>;
+    ticket_no: Generated<string | null>; parent_task_id: Generated<string | null>;
   };
+  notifications: { id: Id; user_id: string; task_id: string; text: string; read_at: Date | null; created_at: Stamp };
   task_events: { id: Id; task_id: string; actor_id: string | null; type: TaskEventType; payload: Json<Record<string, unknown>>; created_at: Stamp };
 }
 

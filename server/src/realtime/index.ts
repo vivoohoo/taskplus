@@ -7,7 +7,7 @@ import { Redis } from 'ioredis';
 import { Server } from 'socket.io';
 import { canSeeThread, currentUser, isUuid } from '../modules/access';
 
-export type RealtimeEvent = 'message.created' | 'task.transcribed' | 'task.structured' | 'task.updated';
+export type RealtimeEvent = 'message.created' | 'task.transcribed' | 'task.structured' | 'task.updated' | 'notification';
 
 /** What the rest of the server uses: send one event to a set of rooms. */
 export interface Realtime { emit(rooms: string[], event: RealtimeEvent, payload: unknown): void; close(): Promise<void> }

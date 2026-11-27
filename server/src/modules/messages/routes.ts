@@ -36,6 +36,12 @@ export async function messageRoutes(app: FastifyInstance) {
     }
     if (r.created) {
       app.services.realtime.emit(threadRooms(thread), 'message.created', { message: r.message, task: r.task });
+      if ('parentId' in r && r.parentId) {
+        // /subtask: the parent now waits for the other department.
+        const p = await app.db.selectFrom('tasks').selectAll().where('id', '=', r.parentId).executeTakeFirstOrThrow();
+        const pth = await app.db.selectFrom('threads').selectAll().where('id', '=', p.thread_id).executeTakeFirstOrThrow();
+        app.services.realtime.emit([...threadRooms(pth), `user:${me.id}`], 'task.updated', { task: taskDto(p), event: { type: 'handed_off', payload: { subTaskId: r.task!.id } } });
+      }
       const taskId = r.task!.id;
       if (r.message.kind === 'voice') await app.services.jobs.enqueue('transcribe', { messageId: r.message.id, taskId }, { jobId: `transcribe:${taskId}` });
       else await app.services.jobs.enqueue('structure', { taskId }, { jobId: `structure:${taskId}` });

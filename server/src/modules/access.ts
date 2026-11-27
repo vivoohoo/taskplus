@@ -9,9 +9,11 @@ export async function currentUser(db: Db, id: string): Promise<User> {
   return u;
 }
 
-/** Direct: one of the pair. Department: the requester, or anyone in that department. */
+/** Direct: one of the pair. Department: the requester, or anyone in that department. Private notes: only their writer. */
 export const canSeeThread = (u: User, t: Thread) =>
-  t.type === 'direct' ? t.user_a_id === u.id || t.user_b_id === u.id : t.requester_id === u.id || t.department_id === u.department_id;
+  t.type === 'direct' ? t.user_a_id === u.id || t.user_b_id === u.id
+  : t.type === 'self' ? t.requester_id === u.id
+  : t.requester_id === u.id || t.department_id === u.department_id;
 
 export async function threadFor(db: Db, u: User, threadId: string): Promise<Thread> {
   if (!isUuid(threadId)) throw notFound('Chat not found.');
@@ -25,6 +27,7 @@ export async function threadFor(db: Db, u: User, threadId: string): Promise<Thre
 export const threadRooms = (t: Thread) =>
   t.type === 'direct'
     ? [`thread:${t.id}`, `user:${t.user_a_id}`, `user:${t.user_b_id}`]
+    : t.type === 'self' ? [`thread:${t.id}`, `user:${t.requester_id}`]
     : [`thread:${t.id}`, `user:${t.requester_id}`, `dept:${t.department_id}`];
 
 /** The other side of a direct thread, as seen by `me`. */

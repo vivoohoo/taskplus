@@ -125,9 +125,18 @@ export async function peopleRoutes(app: FastifyInstance) {
     const files = await db.selectFrom('attachments').innerJoin('messages', 'messages.id', 'attachments.message_id')
       .select(['attachments.r2_key as key', 'attachments.mime', 'attachments.size_bytes as sizeBytes', 'messages.created_at as at'])
       .where((eb) => eb.or([eb('messages.id', '=', t.message_id), eb('messages.reply_to_task_id', '=', id)])).execute();
+    // Ornate's case page: replies under the task, its sub-tasks and its parent.
+    const replies = await db.selectFrom('messages').selectAll().where('reply_to_task_id', '=', id).orderBy('created_at').execute();
+    const subs = await db.selectFrom('tasks').innerJoin('departments', 'departments.id', 'tasks.department_id')
+      .select(['tasks.id', 'tasks.ticket_no', 'tasks.subject', 'tasks.status', 'tasks.thread_id', 'departments.name as department'])
+      .where('tasks.parent_task_id', '=', id).orderBy('tasks.created_at').execute();
+    const parent = t.parent_task_id ? await db.selectFrom('tasks').select(['id', 'ticket_no', 'subject', 'status', 'thread_id']).where('id', '=', t.parent_task_id).executeTakeFirst() : null;
     return {
       events: events.map((e) => ({ type: e.type, by: e.actorName ?? 'System', at: new Date(e.created_at).toISOString(), payload: JSON.parse(e.payload as unknown as string) })),
       files,
+      replies: await withTasks(db, replies, me.id),
+      subTasks: subs.map((s) => ({ id: s.id, ticketNo: s.ticket_no, subject: s.subject, status: s.status, threadId: s.thread_id, department: s.department })),
+      parent: parent ? { id: parent.id, ticketNo: parent.ticket_no, subject: parent.subject, status: parent.status, threadId: parent.thread_id } : null,
     };
   });
 

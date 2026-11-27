@@ -9,16 +9,16 @@ import { badRequest, conflict, forbidden } from '../lib/errors';
 import { Id, parse } from '../lib/validate';
 import { otherUserId } from '../modules/access';
 import { leadChain, manages, teamsLedBy, type OrgSnapshot } from '../modules/org';
-import { acceptDue, halt, shiftOf, start, used } from './clock';
+import { NEVER, acceptDue, halt, shiftOf, start, used } from './clock';
 import { WORKING_DAY, workMs } from './time';
 import { nextTicketNo } from './tickets';
 
 export const ACTIONS = ['accept', 'decline', 'in_progress', 'ask_reassign', 'keep', 'reassign', 'complete', 'verify', 'close', 'reopen',
   'ask_requester', 'block', 'unblock', 'request_reject', 'request_transfer', 'approve_request', 'refuse_request', 'reject', 'transfer',
-  'escalate', 'attend', 'change_priority', 'cancel'] as const;
+  'escalate', 'attend', 'change_priority', 'cancel', 'edit', 'hand_off', 'complete_cancel_subs'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-const ACTIVE: TaskStatus[] = ['Accepted', 'InProgress', 'WaitingInfo', 'Blocked'];
+const ACTIVE: TaskStatus[] = ['Accepted', 'InProgress', 'WaitingInfo', 'WaitingDept', 'Blocked'];
 export const FINISHED: TaskStatus[] = ['Closed', 'Rejected', 'Transferred', 'Cancelled'];
 const PRIORITY_ORDER: Priority[] = ['Low', 'Medium', 'High', 'Critical'];
 export const REOPEN_WINDOW_MS = 7 * 86_400_000;
@@ -53,6 +53,12 @@ function roles(c: Ctx) {
 export function available(c: Ctx): Action[] {
   const t = c.task, r = roles(c), now = c.now.getTime();
   const out = new Set<Action>();
+  if (c.thread.type === 'self') {
+    // Private note (Ornate): only its writer, who closes it or edits it; reopen within 7 days.
+    if (!r.requester) return [];
+    if (t.status !== 'Closed') return ['close', 'edit'];
+    return t.closed_at && now - new Date(t.closed_at).getTime() <= REOPEN_WINDOW_MS ? ['reopen'] : [];
+  }
   if (FINISHED.includes(t.status) && t.status !== 'Closed') return [];
 
   // A staff request waiting on this lead: only the answer to it (Ornate rule: nothing else to misclick).
@@ -64,13 +70,15 @@ export function available(c: Ctx): Action[] {
     if (r.recipient && t.tagged_user_id === c.me.id) out.add('decline');
     if (r.recipient && r.staff && !pendingRequest(t)) out.add('request_reject').add('request_transfer');
     if (r.lead) out.add('reassign').add('reject').add('transfer').add('change_priority');
-    if (r.requester) out.add('cancel').add('change_priority');
+    if (r.requester) out.add('cancel').add('change_priority').add('edit');
   }
   if (ACTIVE.includes(t.status)) {
-    if (r.assignee) {
+    if (r.assignee && t.status === 'WaitingDept') out.add('change_priority');
+    else if (r.assignee) {
       if (t.status === 'Accepted') out.add('in_progress');
       out.add('complete').add('change_priority');
       if (t.status !== 'WaitingInfo') out.add('ask_requester');
+      if (t.status === 'Accepted' || t.status === 'InProgress') out.add('hand_off');
       out.add(t.status === 'Blocked' ? 'unblock' : 'block');
       if (r.staff) {
         const asked = json<Record<string, string>>(t.reassign_asked, {})[c.me.id];
@@ -79,6 +87,8 @@ export function available(c: Ctx): Action[] {
       } else out.add('reject').add('transfer');
     }
     if (r.lead) out.add('reassign').add('reject').add('transfer').add('change_priority');
+    // Department Head: finish the task and drop the sub-tasks it no longer needs (Ornate).
+    if (t.status === 'WaitingDept' && c.me.role === 'dept_head' && c.me.department_id === t.department_id) out.add('complete_cancel_subs');
   }
   if (r.requester) {
     if (t.status === 'Completed') out.add('verify').add('reopen');
@@ -113,7 +123,7 @@ export function escalationTargets(c: Pick<Ctx, 'org' | 'task' | 'senderId'>, wan
 }
 
 const Reason = z.string().trim().min(1, 'Add a short reason.').max(2000);
-export interface Result { type: TaskEventType; payload: Record<string, unknown>; push?: { to: string[]; text: string }; newTaskId?: string }
+export interface Result { type: TaskEventType; payload: Record<string, unknown>; push?: { to: string[]; text: string }; newTaskId?: string; restructure?: boolean; cancelledSubs?: string[] }
 
 /** Run one action. Throws a readable error if it isn't allowed now. */
 export async function run(c: Ctx, action: Action, body: unknown): Promise<Result> {
@@ -166,11 +176,19 @@ export async function run(c: Ctx, action: Action, body: unknown): Promise<Result
       await upd({ status: 'Verified', verified_at: now });
       return { type: 'verified', payload: { by: c.me.id }, push: { to: t.assignee_id ? [t.assignee_id] : [], text: 'verified' } };
     case 'close': {
+      if (c.thread.type === 'self') {
+        await upd({ status: 'Closed', closed_at: now });
+        return { type: 'closed', payload: {} };
+      }
       const { resolution, customerInformed } = parse(z.object({ resolution: Reason, customerInformed: z.enum(['yes', 'no', 'n/a']) }), body);
       await upd({ status: 'Closed', closed_at: now, resolution, customer_informed: customerInformed });
       return { type: 'closed', payload: { resolution, customerInformed }, push: { to: t.assignee_id ? [t.assignee_id] : [], text: 'closed' } };
     }
     case 'reopen': {
+      if (c.thread.type === 'self') {
+        await upd({ status: 'InProgress', closed_at: null }, ['Closed']);
+        return { type: 'reopened', payload: {} };
+      }
       const { reason } = parse(z.object({ reason: Reason }), body);
       const s = start({ ...t, clock_used_ms: t.clock_used_ms }, now, ownerShift, holidays);
       await upd({ status: 'InProgress', closed_at: null, completed_at: null, verified_at: null, resolution: null, customer_informed: null, ...s }, ['Completed', 'Verified', 'Closed']);
@@ -239,6 +257,27 @@ export async function run(c: Ctx, action: Action, body: unknown): Promise<Result
       return { type: 'cancelled', payload: {}, push: { to: [t.assignee_id ?? t.tagged_user_id].filter((x): x is string => !!x), text: 'cancelled' } };
     case 'reassign':
       throw badRequest('Use the reassign endpoint.');
+    case 'hand_off':
+      throw badRequest('Type /subtask in the chat and pick a department.');
+    case 'edit': {
+      // Ornate's edit-until-accepted, the Task Plus way: the sender changes their words and the AI reads them again.
+      const { text } = parse(z.object({ text: z.string().trim().min(1, 'Type the message.').max(4000) }), body);
+      const m = await db.selectFrom('messages').select(['id', 'kind', 'body_text']).where('id', '=', t.message_id).executeTakeFirstOrThrow();
+      if (m.kind !== 'text') throw badRequest('Only a typed message can be edited. Cancel it and send a new one.');
+      if (m.body_text === text) throw badRequest('Nothing changed.');
+      await upd({ ai_status: 'pending', ai_error: null });
+      await db.updateTable('messages').set({ body_text: text }).where('id', '=', m.id).execute();
+      return { type: 'edited', payload: { from: m.body_text, to: text }, restructure: c.thread.type !== 'self' };
+    }
+    case 'complete_cancel_subs': {
+      const { remarks } = parse(z.object({ remarks: Reason }), body);
+      const subs = await db.selectFrom('tasks').select('id').where('parent_task_id', '=', t.id).where('status', 'not in', [...FINISHED, 'Completed', 'Verified']).execute();
+      if (subs.length) await db.updateTable('tasks').set({ status: 'Cancelled', closed_at: now, clock_state: 'stopped', clock_running_since: null, due_at: NEVER, updated_at: now })
+        .where('id', 'in', subs.map((s) => s.id)).execute();
+      await upd({ status: 'Completed', completed_at: now, ...halt(t, now, 'stopped', ownerShift, holidays), due_at: dueForVerify(now) });
+      return { type: 'subs_cancelled', payload: { remarks, cancelled: subs.map((s) => s.id) },
+        push: { to: [c.senderId, ...(t.assignee_id ? [t.assignee_id] : [])], text: 'completed, open sub-tasks cancelled: please verify' }, cancelledSubs: subs.map((s) => s.id) };
+    }
   }
 }
 

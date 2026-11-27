@@ -8,9 +8,10 @@ import { Id, parse } from '../../lib/validate';
 import { KEY_PATTERN, type StorageProvider } from '../../storage/StorageProvider';
 import { type AttachmentRow, messageDto, taskDto } from '../dto';
 import { loadOrg } from '../org';
-import { acceptDue, loadHolidays, shiftOf, start } from '../../workflow/clock';
+import { NEVER, acceptDue, halt, loadHolidays, shiftOf, start } from '../../workflow/clock';
 import { nextTicketNo } from '../../workflow/tickets';
-import { available } from '../../workflow/engine';
+import { available, FINISHED } from '../../workflow/engine';
+import { forbidden } from '../../lib/errors';
 
 const Priority = z.enum(['Critical', 'High', 'Medium', 'Low']);
 export const Overrides = z.object({
@@ -31,6 +32,8 @@ export const NewMessage = z.object({
   taggedUserId: Id.optional(),
   /** An answer or comment on an existing task in this chat: saved as a message, no new task. */
   replyToTaskId: Id.optional(),
+  /** `/subtask`: this message becomes a sub-task of that task, sent to this chat's department (Ornate's Hand off). */
+  parentTaskId: Id.optional(),
 }).superRefine((m, ctx) => {
   if (m.kind === 'text' && !m.bodyText) ctx.addIssue({ code: 'custom', path: ['bodyText'], message: 'Type a message.' });
   if (m.kind === 'voice' && (!m.audioKey || !m.audioDurationS)) ctx.addIssue({ code: 'custom', path: ['audioKey'], message: 'Voice note missing.' });
@@ -43,7 +46,7 @@ export const dueAt = (env: Env, p: Priority, from = new Date()) => new Date(from
 
 const isDuplicate = (e: unknown) => [2601, 2627].includes((e as { number?: number }).number ?? 0);
 /** Uploads for a thread live under its department id, or "direct". */
-const scopeOf = (t: Thread) => (t.type === 'direct' ? 'direct' : t.department_id!.toLowerCase());
+const scopeOf = (t: Thread) => (t.type === 'department' ? t.department_id!.toLowerCase() : 'direct');
 
 export async function createMessage(db: Db, env: Env, storage: StorageProvider, me: User, thread: Thread, raw: unknown) {
   const body = parse(NewMessage, raw);
@@ -69,8 +72,10 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
   }
 
   if (body.replyToTaskId) return reply(db, me, thread, body);
+  const parent = body.parentTaskId ? await subtaskParent(db, me, thread, body.parentTaskId) : null;
+  const note = thread.type === 'self';
 
-  const priority: Priority = body.overrides.priority ?? env.DEFAULT_PRIORITY;
+  const priority: Priority = body.overrides.priority ?? parent?.priority ?? env.DEFAULT_PRIORITY;
   const holidays = await loadHolidays(db);
   const now = new Date();
   try {
@@ -85,17 +90,27 @@ export async function createMessage(db: Db, env: Env, storage: StorageProvider, 
         await tx.insertInto('attachments').values({ message_id: message.id, r2_key: k, mime: h.mime, size_bytes: h.sizeBytes, width: null, height: null }).execute();
       }
       const task = await tx.insertInto('tasks').values({
-        message_id: message.id, thread_id: thread.id, priority, queued_at: now, due_at: acceptDue(now, priority, holidays), ticket_no: await nextTicketNo(tx, now),
+        message_id: message.id, thread_id: thread.id, priority,
+        // A private note is yours from the start: in progress, no clock, never routed (Ornate).
+        ...(note ? { status: 'InProgress' as const, assignee_id: me.id, accepted_at: now, queued_at: null, due_at: NEVER }
+          : { queued_at: now, due_at: acceptDue(now, priority, holidays), assignee_id: null }),
+        ticket_no: parent ? await subtaskNo(tx, parent) : await nextTicketNo(tx, now), parent_task_id: parent?.id ?? null,
         department_id: thread.department_id, team_id: thread.team_id, tagged_user_id: body.taggedUserId ?? null,
         overrides: JSON.stringify(body.overrides),
         subject: null, module: null, customer_name: null, customer_phone: null, customer_location: null, license_no: null,
-        details: null, assignee_id: null, ai_error: null, ai_provider: null, prompt_version: null, closed_at: null,
+        details: null, ai_error: null, ai_provider: null, prompt_version: null, closed_at: null,
       }).output('inserted.id').executeTakeFirstOrThrow();
-      await tx.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'created', payload: JSON.stringify({ kind: body.kind }) }).execute();
+      await tx.insertInto('task_events').values({ task_id: task.id, actor_id: me.id, type: 'created', payload: JSON.stringify({ kind: body.kind, ...(parent ? { parentTaskId: parent.id } : {}) }) }).execute();
+      if (parent) {
+        // The parent waits for the other department; its clock pauses (Ornate: Waiting for Another Dept).
+        const shift = shiftOf((await tx.selectFrom('users').select('shift').where('id', '=', me.id).executeTakeFirst())?.shift);
+        await tx.updateTable('tasks').set({ status: 'WaitingDept', ...halt(parent, now, 'paused', shift, holidays), updated_at: now }).where('id', '=', parent.id).execute();
+        await tx.insertInto('task_events').values({ task_id: parent.id, actor_id: me.id, type: 'handed_off', payload: JSON.stringify({ subTaskId: task.id, departmentId: thread.department_id }) }).execute();
+      }
       await tx.updateTable('threads').set({ last_message_at: new Date(), updated_at: new Date() }).where('id', '=', thread.id).execute();
       return message.id;
     });
-    return { created: true, ...(await loadMessage(db, out)) };
+    return { created: true, parentId: parent?.id ?? null, ...(await loadMessage(db, out)) };
   } catch (e) {
     // The same message sent twice at the same moment: the second one gets the first one's result.
     if (isDuplicate(e)) { const again = await findExisting(db, me.id, body.clientMsgId); if (again) return { created: false, ...again }; }
@@ -194,4 +209,36 @@ async function reply(db: Db, me: User, thread: Thread, body: NewMessage) {
     return m.id;
   });
   return { created: true, answered, replyTo: t, ...(await loadMessage(db, id)) };
+}
+
+/** `/subtask` rules: only the person working on the task, while it is accepted or in progress, to another department's chat. */
+async function subtaskParent(db: Db, me: User, thread: Thread, parentId: string) {
+  const p = await db.selectFrom('tasks').selectAll().where('id', '=', parentId).executeTakeFirst();
+  if (!p) throw badRequest('That task was not found.');
+  if (p.assignee_id !== me.id || !['Accepted', 'InProgress'].includes(p.status) || !p.department_id) throw forbidden('Only the person working on the task can hand off part of it.');
+  if (thread.type !== 'department' || thread.requester_id !== me.id) throw badRequest('Send a sub-task to a department.');
+  if (thread.department_id === p.department_id) throw badRequest('Choose another department.');
+  return p;
+}
+
+/** Sub-task numbers follow the parent: ORN-SS-2627-00042/T2, /T3 ... (Ornate). */
+async function subtaskNo(db: Db, parent: Task) {
+  const n = await db.selectFrom('tasks').select(db.fn.countAll<number>().as('n')).where('parent_task_id', '=', parent.id).executeTakeFirstOrThrow();
+  return `${parent.ticket_no ?? 'T'}/T${Number(n.n) + 2}`;
+}
+
+/** A sub-task ended: its parent hears about it, and goes back to In progress once none are left open. */
+export async function subtaskSettled(db: Db, sub: Pick<Task, 'id' | 'parent_task_id' | 'subject'>, actorId: string | null) {
+  if (!sub.parent_task_id) return null;
+  const p = await db.selectFrom('tasks').selectAll().where('id', '=', sub.parent_task_id).executeTakeFirst();
+  if (!p) return null;
+  await db.insertInto('task_events').values({ task_id: p.id, actor_id: actorId, type: 'subtask_done', payload: JSON.stringify({ subTaskId: sub.id, subject: sub.subject }) }).execute();
+  const open = await db.selectFrom('tasks').select('id').where('parent_task_id', '=', p.id)
+    .where('status', 'not in', [...FINISHED, 'Completed', 'Verified']).execute();
+  if (p.status === 'WaitingDept' && !open.length) {
+    const holidays = await loadHolidays(db);
+    const shift = shiftOf((await db.selectFrom('users').select('shift').where('id', '=', p.assignee_id ?? '').executeTakeFirst())?.shift);
+    await db.updateTable('tasks').set({ status: 'InProgress', ...start(p, new Date(), shift, holidays), updated_at: new Date() }).where('id', '=', p.id).where('status', '=', 'WaitingDept').execute();
+  }
+  return p;
 }

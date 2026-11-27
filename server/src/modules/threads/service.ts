@@ -13,12 +13,19 @@ export function threadsQuery(db: Db, u: User) {
     eb('user_a_id', '=', u.id),
     eb('user_b_id', '=', u.id),
     eb('requester_id', '=', u.id),
-    ...(u.department_id ? [eb('department_id', '=', u.department_id)] : []),
+    ...(u.department_id ? [eb.and([eb('type', '=', 'department'), eb('department_id', '=', u.department_id)])] : []),
   ]));
 }
 
 /** Get or create; two people opening the same chat at once still get one thread. */
-export async function openThread(db: Db, me: User, target: { targetType: 'user' | 'department' | 'team'; targetId: string }): Promise<Thread> {
+export async function openThread(db: Db, me: User, target: { targetType: 'user' | 'department' | 'team' | 'self'; targetId?: string }): Promise<Thread> {
+  if (target.targetType === 'self') {
+    // Private notes: one chat with yourself (Ornate). Nothing in it is ever routed to anyone.
+    const find = () => db.selectFrom('threads').selectAll().where('type', '=', 'self').where('requester_id', '=', me.id).executeTakeFirst();
+    const insert = () => db.insertInto('threads').values({ type: 'self', requester_id: me.id }).output('inserted.id').executeTakeFirstOrThrow();
+    return getOrCreate(find, insert, db);
+  }
+  if (!target.targetId) throw badRequest('Choose who to send to.');
   if (target.targetType === 'user') {
     if (target.targetId === me.id) throw badRequest('You cannot start a chat with yourself.');
     const other = await db.selectFrom('users').select('id').where('id', '=', target.targetId).where('is_active', '=', true).executeTakeFirst();
@@ -73,7 +80,10 @@ export async function listThreads(db: Db, me: User) {
   return threads.map((t) => {
     const m = last.get(t.id);
     let title: string, subtitle: string | null = null, avatarUrl: string | null = null;
-    if (t.type === 'direct') {
+    if (t.type === 'self') {
+      title = 'Private notes';
+      subtitle = 'Only you';
+    } else if (t.type === 'direct') {
       const o = user.get(otherUserId(t, me.id)!);
       title = o?.name ?? 'Unknown';
       subtitle = o?.department_id ? dept.get(o.department_id) ?? null : null;

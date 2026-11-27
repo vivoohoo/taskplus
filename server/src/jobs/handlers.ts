@@ -128,6 +128,11 @@ export function jobHandlers(d: JobDeps): JobHandlers {
       ? { title: `${sender.name}${task.priority === 'High' ? ' · High' : ''}`, body: what }
       : { title: what, body: text ? text.charAt(0).toUpperCase() + text.slice(1) : (task.status === 'InProgress' ? 'In progress' : task.status) };
 
+    // The bell (Ornate): every alert is also kept in the person's notification list.
+    const line = `${msg.title} · ${msg.body}`.slice(0, 300);
+    await d.db.insertInto('notifications').values(to.map((user_id) => ({ user_id, task_id: task.id, text: line, read_at: null }))).execute();
+    d.realtime.emit(to.map((u) => `user:${u}`), 'notification', { taskId: task.id, text: line });
+
     const tokens = await d.db.selectFrom('device_tokens').select('fcm_token').where('user_id', 'in', to).execute();
     const { invalidTokens } = await d.push.send(tokens.map((t) => t.fcm_token), { ...msg, threadId: thread.id, taskId: task.id });
     if (invalidTokens.length) await d.db.deleteFrom('device_tokens').where('fcm_token', 'in', invalidTokens).execute();
@@ -135,6 +140,7 @@ export function jobHandlers(d: JobDeps): JobHandlers {
 
   /** D3 (owner, 26 Nov): a tagged department task pushes to the tagged person only; otherwise the whole department. */
   async function recipientsOfNew(thread: Thread, task: Task, senderId: string) {
+    if (thread.type === 'self') return [];
     if (thread.type === 'direct') return [otherUserId(thread, senderId)!];
     if (task.tagged_user_id) {
       // Away: the tagged person's team covers (Ornate's cover rule).
