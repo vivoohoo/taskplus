@@ -29,8 +29,43 @@ class Repository {
           SearchResult.fromJson(r as Map<String, dynamic>)
       ]);
 
-  Future<ThreadSummary> openThread(String targetType, String targetId) => _call(() async => ThreadSummary.fromJson(
-      (await _dio.post('/threads/open', data: {'targetType': targetType, 'targetId': targetId})).data['thread'] as Map<String, dynamic>));
+  Future<ThreadSummary> openThread(String targetType, [String? targetId]) => _call(() async => ThreadSummary.fromJson(
+      (await _dio.post('/threads/open', data: {'targetType': targetType, 'targetId': ?targetId})).data['thread'] as Map<String, dynamic>));
+
+  /// The chat to write in for a party: a person, a team, a department, or your private notes.
+  Future<ThreadSummary> threadFor(String partyKey) {
+    if (partyKey == 'self') return openThread('self');
+    final id = partyKey.substring(2);
+    return openThread(switch (partyKey[0]) { 'u' => 'user', 't' => 'team', _ => 'department' }, id);
+  }
+
+  // ---- Ornate's lists, timeline and bell ----
+  Future<CaseList> cases(CaseQuery q) => _call(() async {
+        final d = (await _dio.get('/cases', queryParameters: q.toQuery())).data as Map<String, dynamic>;
+        final s = d['stats'] as Map?;
+        return CaseList(
+          rows: [for (final r in d['items'] as List) CaseRow.fromJson(r as Map<String, dynamic>)],
+          grouped: d['grouped'] == true,
+          stats: s == null ? null : (waiting: (s['waiting'] as num).toInt(), inProgress: (s['inProgress'] as num).toInt(), overdue: (s['overdue'] as num).toInt()),
+        );
+      });
+  Future<({int my, int queue, int all})> caseCounts() => _call(() async {
+        final d = (await _dio.get('/cases/counts')).data;
+        return (my: (d['my'] as num).toInt(), queue: (d['queue'] as num).toInt(), all: (d['all'] as num).toInt());
+      });
+  Future<({Party? party, List<ChatItem> items})> timeline(String party) => _call(() async {
+        final d = (await _dio.get('/timeline', queryParameters: {'party': party})).data;
+        return (
+          party: d['party'] == null ? null : Party.fromJson(d['party'] as Map<String, dynamic>),
+          items: [for (final i in d['items'] as List) ChatItem.fromJson(i as Map<String, dynamic>)],
+        );
+      });
+  Future<({int unread, List<AppNotification> items})> notifications() => _call(() async {
+        final d = (await _dio.get('/notifications')).data;
+        return (unread: (d['unread'] as num).toInt(), items: [for (final n in d['items'] as List) AppNotification.fromJson(n as Map<String, dynamic>)]);
+      });
+  Future<void> markNotificationRead(String id) => _call(() => _dio.post('/notifications/$id/read'));
+  Future<void> markAllNotificationsRead() => _call(() => _dio.post('/notifications/read-all'));
 
   Future<({List<ChatItem> items, String? nextCursor})> messages(String threadId, {String? before}) => _call(() async {
         final r = await _dio.get('/threads/$threadId/messages', queryParameters: {'limit': 30, 'before': ?before});
@@ -52,6 +87,7 @@ class Repository {
           if (d.overrides.isNotEmpty) 'overrides': d.overrides,
           'taggedUserId': ?d.taggedUserId,
           'replyToTaskId': ?d.replyToTaskId,
+          'parentTaskId': ?d.parentTaskId,
         });
         return ChatItem.fromJson(r.data as Map<String, dynamic>);
       });
@@ -75,6 +111,9 @@ class Repository {
       _task(() => _dio.post('/tasks/$taskId/actions/$action', data: body));
 
   /// One task with this person's buttons (re-read after a live event).
+  /// A task for its case page, with who is on the other side.
+  Future<CaseRow> caseOf(String taskId) => _call(() async => CaseRow.fromJson((await _dio.get('/cases/$taskId')).data as Map<String, dynamic>));
+
   Future<ChatItem> task(String taskId) => _call(() async => ChatItem.fromJson((await _dio.get('/tasks/$taskId')).data as Map<String, dynamic>));
 
   Future<List<({String id, String name})>> departments() => _call(() async => [

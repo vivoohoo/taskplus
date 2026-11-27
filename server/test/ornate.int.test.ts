@@ -26,7 +26,7 @@ async function send(from: keyof typeof P, target: object, text: string, extra: o
   return { threadId: th.id as string, taskId: r.body.task?.id as string, status: r.status, body: r.body };
 }
 const cases = async (k: keyof typeof P, q: string) => (await as(k).get(`/v1/cases?${q}`)).body;
-const ticket = (body: { items: { task: { id: string } }[] }, taskId: string) => body.items.find((i) => i.task.id === taskId);
+const ticket = (body: { items: { task: { id: string }; party: { key: string; name: string } }[] }, taskId: string) => body.items.find((i) => i.task.id === taskId);
 
 describe('tabs, chips and one chat per person', () => {
   it('My Tasks, Queue and All Cases follow Ornate rules; the chat moves under whoever holds it', async () => {

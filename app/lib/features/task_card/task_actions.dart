@@ -5,7 +5,7 @@ import '../../data/models.dart';
 import '../../data/providers.dart';
 
 /// What each workflow action needs from the person, and how its button reads. The server decides which ones they get.
-enum Need { none, reason, remarks, question, close, department, escalate, priority, confirm, member }
+enum Need { none, reason, remarks, question, close, department, escalate, priority, confirm, member, edit, handOff }
 
 class ActionSpec {
   const ActionSpec(this.label, this.need, {this.danger = false, this.primary = false, this.prompt});
@@ -39,6 +39,9 @@ const actionSpecs = <String, ActionSpec>{
   'attend': ActionSpec('Attend escalation', Need.none, primary: true),
   'change_priority': ActionSpec('Change priority', Need.priority),
   'cancel': ActionSpec('Cancel task', Need.confirm, danger: true),
+  'edit': ActionSpec('Edit', Need.edit),
+  'hand_off': ActionSpec('Hand Off', Need.handOff, primary: true),
+  'complete_cancel_subs': ActionSpec('Complete – cancel open sub-tasks', Need.remarks),
 };
 
 /// Short past-tense message after an action (plain, as decided for Ornate).
@@ -47,7 +50,8 @@ String doneText(String a) => const {
       'reassign': 'Reassigned', 'complete': 'Marked complete', 'verify': 'Verified', 'close': 'Closed', 'reopen': 'Reopened', 'ask_requester': 'Question sent',
       'block': 'Blocked', 'unblock': 'Unblocked', 'request_reject': 'Rejection requested', 'request_transfer': 'Transfer requested',
       'approve_request': 'Request approved', 'refuse_request': 'Request refused', 'reject': 'Rejected', 'transfer': 'Transferred', 'escalate': 'Escalated',
-      'attend': 'Marked as attending', 'change_priority': 'Priority changed', 'cancel': 'Cancelled',
+      'attend': 'Marked as attending', 'change_priority': 'Priority changed', 'cancel': 'Cancelled', 'edit': 'Changes saved',
+      'complete_cancel_subs': 'Completed',
     }[a] ?? 'Saved';
 
 /// Asks for what the action needs, runs it, and returns the updated task (null if the person backed out).
@@ -58,6 +62,23 @@ Future<Task?> runAction(BuildContext context, WidgetRef ref, Task t, String acti
   switch (spec.need) {
     case Need.none:
       break;
+    case Need.handOff:
+      return null; // the case page puts /subtask in the chat box instead
+    case Need.edit:
+      final cur = (await repo.task(t.id)).message.bodyText ?? '';
+      if (!context.mounted) return null;
+      final c = TextEditingController(text: cur);
+      final text = await showDialog<String>(context: context, builder: (d) => AlertDialog(
+        title: const Text('Edit'),
+        content: TextField(controller: c, autofocus: true, minLines: 2, maxLines: 8, decoration: InputDecoration(
+            labelText: 'Your message', helperText: t.isNote ? null : 'The card is read again from your new words.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Back')),
+          FilledButton(onPressed: () { if (c.text.trim().isNotEmpty) Navigator.pop(d, c.text.trim()); }, child: const Text('Save')),
+        ],
+      ));
+      if (text == null) return null;
+      body = {'text': text};
     case Need.confirm:
       final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
         title: Text('${spec.label}?'),
@@ -75,7 +96,7 @@ Future<Task?> runAction(BuildContext context, WidgetRef ref, Task t, String acti
       if (text == null) return null;
       body = {key: text};
     case Need.close:
-      body = await _askClose(context);
+      body = t.isNote ? const {} : await _askClose(context);
     case Need.department:
       final depts = (await repo.departments()).where((d) => d.id != t.departmentId).toList();
       if (!context.mounted) return null;

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,17 +7,11 @@ import '../../data/models.dart';
 import '../../data/providers.dart';
 import '../chat/attachments.dart';
 import '../chat/voice_player.dart';
+import '../../core/theme.dart';
+import '../ornate/widgets.dart';
 import 'task_actions.dart';
-import 'task_details.dart';
 
-/// Status names as people read them.
-String statusLabel(String s) => switch (s) {
-      'InProgress' => 'In progress',
-      'WaitingInfo' => 'Waiting for information',
-      'Blocked' => 'Blocked',
-      'Completed' => 'Completed – to verify',
-      _ => s,
-    };
+export '../ornate/widgets.dart' show statusLabel;
 
 const priorityColors = {'Critical': Color(0xFF8E0000), 'High': Color(0xFFD93025), 'Medium': Color(0xFFE37400), 'Low': Color(0xFF5F6368)};
 
@@ -62,7 +57,9 @@ class TaskCard extends ConsumerWidget {
     return Card(
       key: Key('task-${t.id}'),
       margin: const EdgeInsets.symmetric(vertical: 4),
-      color: c.surfaceContainerHigh,
+      color: context.o.inBubble,
+      elevation: 0.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -74,7 +71,7 @@ class TaskCard extends ConsumerWidget {
             if (t.escalationLevel != null) _Badge('Escalated', c.error),
             if (t.reassignRequestedBy != null) _Badge('Reassignment requested', const Color(0xFFE37400)),
             if (t.requestKind != null) _Badge(t.requestKind == 'reject' ? 'Asked to reject' : 'Asked to transfer', const Color(0xFFE37400)),
-            if (t.status != 'Open') Text(statusLabel(t.status), style: theme.textTheme.labelMedium),
+            StatusPill(t.status),
           ]),
           const SizedBox(height: 6),
           if (pending) ...[
@@ -84,7 +81,7 @@ class TaskCard extends ConsumerWidget {
           ] else if (t.subject != null)
             InkWell(
               key: Key('open-details-${t.id}'),
-              onTap: () => showTaskDetails(context, item),
+              onTap: () => context.push('/case/${t.id}'),
               child: Text(t.subject!, style: theme.textTheme.titleMedium),
             ),
           if (t.ticketNo != null) Text(t.ticketNo!, style: theme.textTheme.labelSmall?.copyWith(color: c.onSurfaceVariant)),

@@ -43,7 +43,11 @@ class ActiveToken {
   static bool _isSpace(String c) => c == ' ' || c == '\n' || c == '\t';
 }
 
-List<SlashCommand> matchingCommands(String query) => slashCommands.where((c) => c.name.startsWith(query)).toList();
+/// `/subtask` (Ornate's Hand off): only in a task's chat, for the person working on it.
+const subtaskCommand = SlashCommand('subtask', 'Sub-task to another department');
+
+List<SlashCommand> matchingCommands(String query, {bool subtask = false}) =>
+    [...slashCommands, if (subtask) subtaskCommand].where((c) => c.name.startsWith(query)).toList();
 
 /// Chip text for a chosen value.
 String overrideLabel(String name, String value) => switch (name) {

@@ -4,34 +4,46 @@ import 'package:material_ui/material_ui.dart';
 import '../../core/auth/auth_controller.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/theme.dart';
 import '../../data/providers.dart';
+import '../ornate/widgets.dart';
 
 final _profileProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) => ref.watch(repositoryProvider).profile());
 
-/// You: short role label ("ProfitNX lead"), a separate "Reporting manager" line, change password, sign out.
-class ProfileScreen extends ConsumerWidget {
+/// The You page on its own route (the home screen shows [ProfileBody] as its fourth tab).
+class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('You')), body: const ProfileBody());
+}
+
+/// Ornate's You page: who you are, then Away, Shift, Team, wallpaper, notifications, holidays, suggestions, Style, Light or dark.
+class ProfileBody extends ConsumerWidget {
+  const ProfileBody({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = ref.watch(_profileProvider);
     final t = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('You')),
-      body: p.when(
+    final look = ref.watch(appearanceProvider);
+    Future<void> choose<T>(String title, Map<T, String> options, T current, void Function(T) set) async {
+      final v = await showDialog<T>(context: context, builder: (d) => SimpleDialog(title: Text(title), children: [
+        for (final e in options.entries) RadioListTile<T>(value: e.key, groupValue: current, title: Text(e.value), onChanged: (x) => Navigator.pop(d, x)),
+      ]));
+      if (v != null) set(v);
+    }
+    return p.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),
-        data: (me) => ListView(padding: const EdgeInsets.all(16), children: [
-          Row(children: [
-            CircleAvatar(radius: 32, child: Text((me['name'] as String)[0], style: t.textTheme.headlineSmall)),
-            const SizedBox(width: 16),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(me['name'] as String, style: t.textTheme.titleLarge),
-              Text(me['roleLabel'] as String? ?? '', key: const Key('role-label'), style: t.textTheme.bodyMedium),
-              if (me['reportingManager'] != null)
-                Text('Reporting manager: ${me['reportingManager']}', key: const Key('manager'), style: t.textTheme.bodySmall),
-            ])),
-          ]),
+        data: (me) => ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 110), children: [
+          Center(child: Column(children: [
+            OAvatar(me['name'] as String, size: 96),
+            const SizedBox(height: 8),
+            Text(me['name'] as String, style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+            Text(me['roleLabel'] as String? ?? '', key: const Key('role-label'), style: TextStyle(color: context.o.muted)),
+            if (me['reportingManager'] != null)
+              Text('Reporting manager: ${me['reportingManager']}', key: const Key('manager'), style: TextStyle(fontSize: 13, color: context.o.muted)),
+          ])),
           const SizedBox(height: 16),
           if (me['departmentName'] != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.apartment), title: Text(me['departmentName'] as String), subtitle: const Text('Department')),
           if (me['teamName'] != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.groups), title: Text('${me['teamName']} team'), subtitle: const Text('Team')),
@@ -48,6 +60,15 @@ class ProfileScreen extends ConsumerWidget {
                 subtitle: const Text('Days the clock skips'), onTap: () => context.push('/settings/holidays')),
           ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lightbulb_outline), title: const Text('Suggest an improvement'),
               onTap: () => context.push('/settings/suggestions')),
+          ListTile(key: const Key('wallpaper'), contentPadding: EdgeInsets.zero, leading: const Icon(Icons.wallpaper), title: const Text('Chat wallpaper'),
+              subtitle: Text(wallpaperLabels[look.wallpaper] ?? 'Default'),
+              onTap: () => choose('Chat wallpaper', wallpaperLabels, look.wallpaper, (v) => ref.read(appearanceProvider.notifier).set(look.copy(wallpaper: v)))),
+          ListTile(key: const Key('style'), contentPadding: EdgeInsets.zero, leading: const Icon(Icons.palette_outlined), title: const Text('Style'),
+              subtitle: Text(styleLabels[look.style] ?? 'Standard'),
+              onTap: () => choose('Style', styleLabels, look.style, (v) => ref.read(appearanceProvider.notifier).set(look.copy(style: v)))),
+          ListTile(key: const Key('theme'), contentPadding: EdgeInsets.zero, leading: const Icon(Icons.brightness_6_outlined), title: const Text('Light or dark'),
+              subtitle: Text(themeLabels[look.mode]!),
+              onTap: () => choose('Choose theme', themeLabels, look.mode, (v) => ref.read(appearanceProvider.notifier).set(look.copy(mode: v)))),
           const Divider(),
           ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lock_outline), title: const Text('Change password'), onTap: () => _changePassword(context, ref)),
           ListTile(
@@ -57,7 +78,6 @@ class ProfileScreen extends ConsumerWidget {
             onTap: () => ref.read(authProvider.notifier).signOut(),
           ),
         ]),
-      ),
     );
   }
 

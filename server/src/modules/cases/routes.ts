@@ -3,7 +3,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Message, Task, Thread, User } from '../../db/schema';
-import { notFound } from '../../lib/errors';
+import { forbidden, notFound } from '../../lib/errors';
 import { Id, parse } from '../../lib/validate';
 import { FINISHED } from '../../workflow/engine';
 import { currentUser, otherUserId } from '../access';
@@ -171,6 +171,17 @@ export async function caseRoutes(app: FastifyInstance) {
     const r = rules(await loadOrg(db), me, Date.now());
     const all = (await rows()).filter(r.canView);
     return { my: all.filter(r.inMyTasks).length, queue: all.filter(r.inQueue).length, all: all.length };
+  });
+
+  /** One task for its case page: the task with this viewer's buttons, and who is on the other side. */
+  app.get('/cases/:id', async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const me = await currentUser(db, req.userId);
+    const r = rules(await loadOrg(db), me, Date.now());
+    const row = (await rows()).find((x) => x.t.id === id);
+    if (!row) throw notFound('Task not found.');
+    if (!r.canView(row) && !(row.th.type !== 'self' && (row.th.department_id === me.department_id || row.th.requester_id === me.id))) throw forbidden();
+    return (await present(me, [row], r))[0];
   });
 
   /** One person's chat: every task between you and them (open and finished) with its replies, oldest first. */

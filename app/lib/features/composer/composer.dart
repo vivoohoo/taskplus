@@ -23,8 +23,16 @@ const dictationLocales = {'en_IN': 'English', 'hi_IN': 'हिंदी', 'gu_IN
 
 /// Bottom-pinned input: text with / commands and @mentions, dictation, hold-to-record voice notes, attachments.
 class Composer extends ConsumerStatefulWidget {
-  const Composer({super.key, required this.threadId, this.departmentId, required this.onSend, this.replyTo, this.onCancelReply});
+  const Composer({super.key, required this.threadId, this.departmentId, required this.onSend, this.replyTo, this.onCancelReply,
+      this.replyOnly = false, this.subtaskOf, this.onSubtask, this.hint});
   final String threadId;
+  /// The case page: every message is about [replyTo] (no reply chip; no new task).
+  final bool replyOnly;
+  /// The task this person may hand part of to another department with /subtask.
+  final Task? subtaskOf;
+  /// Sends a sub-task (its own chat with that department); returns when the server has it.
+  final Future<void> Function(Draft draft, String departmentName)? onSubtask;
+  final String? hint;
   /// Answering a question on this task: the message is a reply, not a new task.
   final Task? replyTo;
   final VoidCallback? onCancelReply;
@@ -40,6 +48,8 @@ class _ComposerState extends ConsumerState<Composer> {
   final _focus = FocusNode();
   final _overrides = <String, String>{};
   Member? _tagged;
+  /// /subtask chosen: the department's chat and its name.
+  ({String threadId, String name})? _subtask;
   final _files = <String>[];
   ActiveToken? _slash, _mention;
 
@@ -87,6 +97,21 @@ class _ComposerState extends ConsumerState<Composer> {
   Future<void> _pickCommand(SlashCommand c) async {
     final token = _slash!;
     String? value;
+    if (c.name == 'subtask') {
+      final depts = (await ref.read(repositoryProvider).departments()).where((d) => d.id != widget.subtaskOf?.departmentId).toList();
+      if (!mounted) return;
+      final d = await showModalBottomSheet<({String id, String name})>(context: context, builder: (_) => SafeArea(child: ListView(shrinkWrap: true, children: [
+        const ListTile(title: Text('Sub-task to which department?')),
+        for (final d in depts) ListTile(title: Text(d.name), onTap: () => Navigator.pop(context, d)),
+      ])));
+      _removeToken(token);
+      if (d != null) {
+        final th = await ref.read(repositoryProvider).openThread('department', d.id);
+        if (mounted) setState(() => _subtask = (threadId: th.id, name: d.name));
+      }
+      _focus.requestFocus();
+      return;
+    }
     if (c.name == 'customer') {
       List<String> list = const [];
       try { list = await ref.read(repositoryProvider).customers(); } catch (_) {}
@@ -131,6 +156,15 @@ class _ComposerState extends ConsumerState<Composer> {
     final body = _text.text.trim();
     final kind = audioPath != null ? 'voice' : body.isEmpty ? 'attachment' : 'text';
     if (kind == 'attachment' && _files.isEmpty) return;
+    final sub = _subtask;
+    if (sub != null && widget.onSubtask != null) {
+      // Ponytail: sub-tasks go straight to the server (not through the offline outbox), text only.
+      if (kind != 'text') return;
+      widget.onSubtask!(Draft(clientMsgId: const Uuid().v4(), threadId: sub.threadId, kind: 'text', bodyText: body, overrides: Map.of(_overrides),
+          parentTaskId: widget.subtaskOf!.id), sub.name);
+      setState(() { _text.clear(); _overrides.clear(); _subtask = null; });
+      return;
+    }
     widget.onSend(Draft(
       clientMsgId: const Uuid().v4(), threadId: widget.threadId, kind: kind,
       bodyText: body.isEmpty ? null : body, audioPath: audioPath, audioDurationS: audioSeconds,
@@ -224,7 +258,7 @@ class _ComposerState extends ConsumerState<Composer> {
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     final hasText = _text.text.trim().isNotEmpty;
-    final commands = _slash == null ? const <SlashCommand>[] : matchingCommands(_slash!.query)
+    final commands = _slash == null ? const <SlashCommand>[] : matchingCommands(_slash!.query, subtask: widget.subtaskOf != null && _subtask == null)
         .where((x) => x.name != 'module' || widget.departmentId != null).toList();
     final members = _mention == null ? const <Member>[] : (ref.watch(departmentProvider(widget.departmentId!)).value?.members ?? const <Member>[])
         .where((m) => m.name.toLowerCase().contains(_mention!.query)).toList();
@@ -242,7 +276,17 @@ class _ComposerState extends ConsumerState<Composer> {
             _Menu(key: const Key('mention-menu'), children: [
               for (final m in members) ListTile(dense: true, title: Text(m.name), onTap: () { _removeToken(_mention!); setState(() => _tagged = m); }),
             ]),
-          if (widget.replyTo != null)
+          if (_subtask != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              child: Align(alignment: Alignment.centerLeft, child: InputChip(
+                key: const Key('subtask-chip'),
+                avatar: const Icon(Icons.call_split, size: 18),
+                label: Text('Sub-task to ${_subtask!.name}'),
+                onDeleted: () => setState(() => _subtask = null),
+              )),
+            ),
+          if (widget.replyTo != null && !widget.replyOnly)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
               child: Align(alignment: Alignment.centerLeft, child: InputChip(
@@ -283,7 +327,7 @@ class _ComposerState extends ConsumerState<Composer> {
                         buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
                         textCapitalization: TextCapitalization.sentences,
                         decoration: InputDecoration(
-                          hintText: widget.departmentId != null ? 'Message, / for tags, @ to tag someone' : 'Message, / for tags',
+                          hintText: widget.hint ?? (widget.departmentId != null ? 'Message, / for tags, @ to tag someone' : 'Message, / for tags'),
                           isDense: true, filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                           suffixIcon: GestureDetector(
                             onLongPress: _chooseLocale,

@@ -19,8 +19,10 @@ void main() {
           '/auth/login' => body!['password'] == 'Taskplus@2026'
               ? (200, {'accessToken': 'a', 'refreshToken': 'r', 'user': {'id': 'u1', 'name': 'Riya Shah', 'role': 'staff', 'departmentId': 'd1'}})
               : (401, {'error': {'code': 'UNAUTHORIZED', 'message': 'Wrong number or password.'}}),
-          '/threads' => (200, {'threads': []}),
-          '/tasks/counts' => (200, {'myPending': 3, 'overdue': 1}),
+          '/cases' => (200, {'items': [], 'grouped': true, 'stats': null}),
+          '/cases/counts' => (200, {'my': 3, 'queue': 1, 'all': 4}),
+          '/notifications' => (200, {'unread': 2, 'items': []}),
+          '/departments' => (200, {'departments': []}),
           _ => (404, {'error': {'code': 'NOT_FOUND', 'message': 'Not found.'}}),
         });
     await tester.pumpWidget(ProviderScope(overrides: [
@@ -40,8 +42,12 @@ void main() {
     await tester.enterText(find.byKey(const Key('password')), 'Taskplus@2026');
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('search')), findsOneWidget); // home: search, filters, chats
-    expect(find.byKey(const Key('filter-overdue')), findsOneWidget);
+    // Home (Ornate): search, chips, the bottom bar with counts, the bell.
+    expect(find.byKey(const Key('case-search-my')), findsOneWidget);
+    expect(find.byKey(const Key('chip-Sent by me')), findsWidgets);
+    expect(find.bySemanticsLabel('Queue, 1'), findsOneWidget);
+    expect(find.byKey(const Key('bell')), findsOneWidget);
+    expect(find.text('Nothing here right now.'), findsWidgets);
     expect((await tokens.read())!.access, 'a');
   });
 }

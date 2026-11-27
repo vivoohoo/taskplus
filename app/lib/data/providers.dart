@@ -33,3 +33,13 @@ final threadsProvider = FutureProvider<List<ThreadSummary>>((ref) => ref.watch(r
 final countsProvider = FutureProvider<({int myPending, int overdue, int sentByMe})>((ref) => ref.watch(repositoryProvider).counts());
 
 final departmentProvider = FutureProvider.family<DepartmentInfo, String>((ref, id) => ref.watch(repositoryProvider).department(id));
+
+/// Everyone in every department (names for chat bubbles, Requester and Owner pickers).
+final peopleProvider = FutureProvider<List<Member>>((ref) async {
+  final repo = ref.watch(repositoryProvider);
+  final out = <Member>[];
+  for (final d in await repo.departments()) {
+    out.addAll((await ref.watch(departmentProvider(d.id).future)).members);
+  }
+  return out..sort((a, b) => a.name.compareTo(b.name));
+});

@@ -16,7 +16,7 @@ class RealtimeEvent {
 class RealtimeClient {
   RealtimeClient(String token, String baseUrl) {
     _socket = io.io(baseUrl, io.OptionBuilder().setTransports(['websocket']).setAuth({'token': token}).enableReconnection().build());
-    for (final e in const ['message.created', 'task.transcribed', 'task.structured', 'task.updated']) {
+    for (final e in const ['message.created', 'task.transcribed', 'task.structured', 'task.updated', 'notification']) {
       _socket.on(e, (d) { if (d is Map) _events.add(RealtimeEvent(e, Map<String, dynamic>.from(d))); });
     }
     _socket.onConnect((_) { for (final t in _joined) { _socket.emit('thread.join', t); } _reconnects.add(null); });

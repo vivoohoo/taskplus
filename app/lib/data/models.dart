@@ -50,8 +50,13 @@ class Task {
     this.subject, this.module, this.customerName, this.customerPhone, this.customerLocation, this.licenseNo, this.details,
     this.assigneeId, this.taggedUserId, this.departmentId, this.aiError, this.warnings = const [], this.closedAt,
     this.actions = const [], this.clockState = 'not started', this.usedMs = 0, this.escalationLevel, this.resolution, this.customerInformed,
-    this.reassignRequestedBy, this.requestKind, this.ticketNo,
+    this.reassignRequestedBy, this.requestKind, this.ticketNo, this.parentTaskId, this.isNote = false, this.createdAt,
   });
+  /// Set on a sub-task (Ornate's Hand off).
+  final String? parentTaskId;
+  /// A private note (a chat with yourself).
+  final bool isNote;
+  final DateTime? createdAt;
   /// The buttons this viewer gets (decided by the server).
   final List<String> actions;
   /// ORN-SS-2627-00042
@@ -102,6 +107,9 @@ class Task {
         reassignRequestedBy: j['reassignRequestedBy'] as String?,
         requestKind: (j['request'] as Map?)?['kind'] as String?,
         ticketNo: j['ticketNo'] as String?,
+        parentTaskId: j['parentTaskId'] as String?,
+        isNote: j['isNote'] == true,
+        createdAt: j['createdAt'] == null ? null : DateTime.parse(j['createdAt'] as String),
       );
 
   /// Events can arrive late or twice: keep whichever version is newest.
@@ -182,10 +190,75 @@ class DepartmentInfo {
 /// What the sender typed or recorded, before the server knows about it.
 class Draft {
   Draft({required this.clientMsgId, required this.threadId, required this.kind, this.bodyText, this.audioPath,
-      this.audioDurationS, this.attachmentPaths = const [], this.overrides = const {}, this.taggedUserId, this.replyToTaskId});
+      this.audioDurationS, this.attachmentPaths = const [], this.overrides = const {}, this.taggedUserId, this.replyToTaskId, this.parentTaskId});
   final String clientMsgId, threadId, kind;
   final String? bodyText, audioPath, taggedUserId, replyToTaskId;
+  /// `/subtask`: this message becomes a sub-task of that task.
+  final String? parentTaskId;
   final int? audioDurationS;
   final List<String> attachmentPaths;
   final Map<String, String> overrides;
+}
+
+/// Who is on the other side of a task, like a WhatsApp contact (Ornate): `u:<id>`, `t:<team>`, `d:<dept>` or `self`.
+class Party {
+  Party({required this.key, required this.name, this.sub = ''});
+  final String key, name, sub;
+  bool get isSelf => key == 'self';
+  factory Party.fromJson(Map<String, dynamic> j) => Party(key: j['key'] as String, name: j['name'] as String, sub: j['sub'] as String? ?? '');
+}
+
+/// One task in a tab list.
+class CaseRow {
+  CaseRow({required this.item, required this.party, required this.overdue, required this.requesterId, required this.lastText, required this.lastAt});
+  final ChatItem item;
+  final Party party;
+  final bool overdue;
+  final String requesterId, lastText;
+  final DateTime lastAt;
+  Task get task => item.task!;
+  factory CaseRow.fromJson(Map<String, dynamic> j) => CaseRow(
+        item: ChatItem.fromJson(j), party: Party.fromJson(j['party'] as Map<String, dynamic>), overdue: j['overdue'] == true,
+        requesterId: j['requesterId'] as String,
+        lastText: (j['last'] as Map)['text'] as String? ?? '', lastAt: DateTime.parse((j['last'] as Map)['at'] as String));
+}
+
+class CaseList {
+  CaseList({required this.rows, required this.grouped, this.stats});
+  final List<CaseRow> rows;
+  final bool grouped;
+  final ({int waiting, int inProgress, int overdue})? stats;
+}
+
+/// Ornate's Filters dialog, plus the tab, chip, department and search.
+class CaseQuery {
+  const CaseQuery({this.tab = 'my', this.chip = 'All', this.dept, this.q = '', this.status, this.priority, this.requester, this.owner, this.type,
+      this.from, this.to, this.closedFrom, this.closedTo, this.openOnly = false});
+  final String tab, chip, q;
+  final String? dept, status, priority, requester, owner, type, from, to, closedFrom, closedTo;
+  final bool openOnly;
+  int get filterCount => [status, priority, requester, owner, type, from, to, closedFrom, closedTo].where((x) => x != null).length + (openOnly ? 1 : 0);
+  Map<String, dynamic> toQuery() => {
+        'tab': tab, 'chip': chip, if (q.isNotEmpty) 'q': q, 'dept': ?dept, 'status': ?status, 'priority': ?priority, 'requester': ?requester,
+        'owner': ?owner, 'type': ?type, 'from': ?from, 'to': ?to, 'closedFrom': ?closedFrom, 'closedTo': ?closedTo, if (openOnly) 'openOnly': 'true',
+      };
+  CaseQuery withFilters(CaseQuery f) => CaseQuery(tab: tab, chip: chip, dept: dept, q: q, status: f.status, priority: f.priority, requester: f.requester,
+      owner: f.owner, type: f.type, from: f.from, to: f.to, closedFrom: f.closedFrom, closedTo: f.closedTo, openOnly: f.openOnly);
+  CaseQuery copy({String? tab, String? chip, String? q, String? dept, bool clearDept = false}) => CaseQuery(tab: tab ?? this.tab, chip: chip ?? this.chip,
+      q: q ?? this.q, dept: clearDept ? null : dept ?? this.dept, status: status, priority: priority, requester: requester, owner: owner, type: type,
+      from: from, to: to, closedFrom: closedFrom, closedTo: closedTo, openOnly: openOnly);
+  @override
+  bool operator ==(Object other) => other is CaseQuery && '${toQuery()}' == '${other.toQuery()}';
+  @override
+  int get hashCode => '${toQuery()}'.hashCode;
+}
+
+class AppNotification {
+  AppNotification({required this.id, required this.taskId, required this.text, required this.read, required this.at, this.ticketNo, this.subject});
+  final String id, taskId, text;
+  final String? ticketNo, subject;
+  final bool read;
+  final DateTime at;
+  factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(id: j['id'] as String, taskId: j['taskId'] as String,
+      text: j['text'] as String, read: j['read'] == true, at: DateTime.parse(j['at'] as String), ticketNo: j['ticketNo'] as String?, subject: j['subject'] as String?);
 }

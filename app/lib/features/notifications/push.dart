@@ -30,8 +30,8 @@ final pushProvider = FutureProvider<void>((ref) async {
   final refreshSub = fm.onTokenRefresh.listen((t) => repo.registerDevice(t, platform));
 
   void open(RemoteMessage m) {
-    final threadId = m.data['threadId'];
-    if (threadId is String) ref.read(routerProvider).push('/chat/$threadId');
+    final taskId = m.data['taskId'], threadId = m.data['threadId'];
+    if (taskId is String) { ref.read(routerProvider).push('/case/$taskId'); } else if (threadId is String) { ref.read(routerProvider).push('/chat/$threadId'); }
   }
   final initial = await fm.getInitialMessage();
   if (initial != null) open(initial);

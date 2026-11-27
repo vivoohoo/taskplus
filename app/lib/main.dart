@@ -16,6 +16,9 @@ import 'features/profile/profile_screen.dart';
 import 'features/profile/settings_screens.dart';
 import 'features/team/team_screen.dart';
 import 'features/search/search_screen.dart';
+import 'features/case/case_screen.dart';
+import 'features/notifications/bell.dart';
+import 'features/person/person_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +39,10 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
       GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+      GoRoute(path: '/new', builder: (_, _) => const SearchScreen()),
+      GoRoute(path: '/person/:key', builder: (_, s) => PersonScreen(partyKey: Uri.decodeComponent(s.pathParameters['key']!), party: s.extra as Party?)),
+      GoRoute(path: '/case/:id', builder: (_, s) => CaseScreen(taskId: s.pathParameters['id']!)),
+      GoRoute(path: '/notifications', builder: (_, _) => const NotificationsScreen()),
       GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
       GoRoute(path: '/team', builder: (_, _) => const TeamScreen()),
       GoRoute(path: '/settings/notifications', builder: (_, _) => const NotificationSettingsScreen()),
@@ -63,10 +70,12 @@ class TaskPlusApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(pushProvider); // registers this phone for notifications once signed in
+    final look = ref.watch(appearanceProvider);
     return MaterialApp.router(
         title: 'Task Plus',
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
+        theme: AppTheme.light(look),
+        darkTheme: AppTheme.dark(look),
+        themeMode: look.mode,
         routerConfig: ref.watch(routerProvider),
         debugShowCheckedModeBanner: false,
       );
