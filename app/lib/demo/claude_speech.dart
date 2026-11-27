@@ -1,5 +1,6 @@
 // Browser demo on claude.ai: the page can't record audio, so speech comes from the viewer's Claude dictation
 // and voice notes are read aloud with Claude's text-to-speech (runtime capabilities `dictation` and `tts`).
+import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
@@ -55,12 +56,30 @@ class ClaudeSpeech implements SpeechHost {
     _onPartial = onPartial;
     _onFinal = onFinal;
     _onListening = onListening;
-    // Called straight from the viewer's tap: nothing awaited before start().
-    _dictation!.callMethod<JSPromise>('start'.toJS).toDart.catchError((Object e) {
-      onListening(false);
-      onError(_message(e));
-      return null;
+    // claude.ai lets a page listen only inside the viewer's click. Flutter reacts to the tap on pointer-up, just before
+    // the browser's click event, so start() is called from that click (or straight away if none comes, e.g. a key press).
+    _onClick(() {
+      _dictation!.callMethod<JSPromise>('start'.toJS).toDart.catchError((Object e) {
+        onListening(false);
+        onError(_message(e));
+        return null;
+      });
     });
+  }
+
+  static void _onClick(void Function() f) {
+    final window = globalContext;
+    var done = false;
+    late final JSFunction handler;
+    void run() {
+      if (done) return;
+      done = true;
+      window.callMethod('removeEventListener'.toJS, 'click'.toJS, handler);
+      f();
+    }
+    handler = ((JSAny? _) => run()).toJS;
+    window.callMethod('addEventListener'.toJS, 'click'.toJS, handler);
+    Timer(const Duration(milliseconds: 500), run);
   }
 
   @override
@@ -77,13 +96,15 @@ class ClaudeSpeech implements SpeechHost {
   void stopSpeaking() => _tts?.callMethod('stop'.toJS);
 
   static String _message(Object e) {
-    final code = e is JSObject ? (e['code'] as JSString?)?.toDart : null;
+    String? code;
+    try { code = ((e as JSObject)['code'] as JSString?)?.toDart; } catch (_) {}
     return switch (code) {
+      'no_gesture' => 'Tap the mic again to start listening.',
       'not_granted' => 'Microphone use was turned down for this page.',
       'dismissed' => 'Allow speech for this page to use the mic.',
       'unavailable' => 'Speech is not available in this browser. Use Chrome or Edge.',
       'rate_limited' => 'Too many tries. Wait a moment and try again.',
-      _ => 'Could not start listening.',
+      _ => 'Could not start listening (${code ?? e}).',
     };
   }
 }
