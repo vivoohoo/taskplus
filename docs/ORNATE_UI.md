@@ -32,3 +32,11 @@ Ornate's create form; follow-up after the reopen window; close by exception; pro
 4. **Demo**: demo backend follows, republish the link.
 
 Each step ends with tests passing and a commit.
+
+## Status (27 Nov 2026)
+
+All four steps are built and committed. Server: 89 tests pass (6 new in `test/ornate.int.test.ts`). App: 28 tests pass (`test/ornate_test.dart`, `test/demo_test.dart`). Checked on the Android emulator against the dev server: home, a person's chat, the case page.
+Browser demo: https://claude.ai/artifact/DSDQMDaqRVVRpiF81eCe7r
+
+New API: `GET /cases`, `/cases/counts`, `/cases/:id`, `/timeline?party=&tab=`, `/notifications`, `POST /notifications/:id/read`, `/notifications/read-all`; `POST /threads/open` takes `targetType: self`; messages take `parentTaskId` (`/subtask`); actions `edit`, `hand_off`, `complete_cancel_subs`; status `WaitingDept`.
+Not done: `/subtask` with a voice note or files (text only, sent straight away, not through the offline outbox).

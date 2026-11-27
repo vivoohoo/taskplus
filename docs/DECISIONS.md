@@ -50,6 +50,10 @@ One line each: decision — reason — alternative.
 | — | Trial phones | **Android only** for now (iOS skipped, 26 Nov) | No Apple account or Mac needed yet |
 | — | Server access | **Cloudflare quick tunnel** (`cloudflared tunnel --url http://localhost:8080`): free HTTPS, no account or domain; the trycloudflare.com address changes on every restart | App gets a "Server address" setting on the sign-in screen so a new address needs no new APK; move to a named tunnel + domain before wider rollout |
 
+## Owner decisions, 27 Nov 2026 (Ornate look)
+
+Keep Ornate Samanvay's UI and basic features with every Task Plus feature; Phase 1 only, nothing from Phase 2 until the leadership review; when in doubt, ask. Full list in [ORNATE_UI.md](ORNATE_UI.md). Note: the home screen follows Ornate's tabs and six chips, which goes beyond Phase 1 item 8 ("at most 3 buttons"); the owner chose this.
+
 ## Contradictions found in the spec (for Review 1)
 
 - §3/§6 say PostgreSQL + Drizzle; owner chose SQL Server (decisions 1–2).
