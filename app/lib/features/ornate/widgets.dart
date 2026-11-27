@@ -169,3 +169,34 @@ String summaryOfTasks(List<Task> open, String me, Map<String, String> senders) {
     if (waiting > 0) '$waiting not accepted', if (over > 0) '$over overdue',
   ].join(' · ');
 }
+
+/// How an update reads, on the case page and as a row's last activity (Ornate's cards): title, icon, tone, note.
+(String, IconData, String, String?) eventLook(String type, Map<String, dynamic> p) {
+  final (title, icon, tone) = switch (type) {
+    'accepted' => ('Accepted', Icons.check, 'green'), 'completed' => ('Completed', Icons.done_all, 'green'), 'verified' => ('Verified', Icons.verified, 'green'),
+    'closed' => ('Closed', Icons.lock_outline, 'green'), 'reopened' => ('Reopened', Icons.replay, 'orange'), 'question' => ('Clock paused · question for requester', Icons.help_outline, 'orange'),
+    'answered' => ('Answered', Icons.reply, 'green'), 'blocked' => ('Blocked · clock stopped', Icons.block, 'red'), 'unblocked' => ('Unblocked', Icons.play_arrow, 'green'),
+    'escalated' => ('Escalated', Icons.trending_up, 'red'), 'attended' => ('Escalation attended', Icons.how_to_reg, 'green'),
+    'reassigned' => ('Reassigned', Icons.swap_horiz, 'neutral'), 'reassign_asked' => ('Reassignment requested', Icons.swap_horiz, 'orange'),
+    'reassign_refused' => ('Stays with the owner', Icons.person, 'neutral'), 'declined' => ('Declined', Icons.close, 'orange'),
+    'request' => (p['kind'] == 'reject' ? 'Rejection requested' : 'Transfer requested', Icons.outbox, 'orange'), 'request_refused' => ('Request refused', Icons.close, 'neutral'),
+    'rejected' => ('Rejected', Icons.cancel_outlined, 'red'), 'transferred' => ('Transferred to ${p['toName'] ?? 'another department'}', Icons.east, 'neutral'),
+    'cancelled' => ('Cancelled', Icons.cancel_outlined, 'red'), 'priority_changed' => ('Priority ${p['from']} → ${p['to']}', Icons.flag_outlined, 'neutral'),
+    'edited' => ('Edited', Icons.edit_outlined, 'neutral'),
+    'warned' => (switch (p['kind']) { 'needs_assigning' => 'Needs assigning', 'over' => 'Overdue', '1h' => '1 working hour left', _ => '75% of the time used' }, Icons.timer_outlined, p['kind'] == 'over' ? 'red' : 'orange'),
+    'handed_off' => ('Handed off · clock paused', Icons.call_split, 'orange'), 'subtask_done' => ('Sub-task finished', Icons.done, 'green'),
+    'subs_cancelled' => ('Completed, open sub-tasks cancelled', Icons.done_all, 'green'), 'status_changed' => (statusLabel('${p['to']}'), Icons.play_arrow, 'green'),
+    final x => (x.replaceAll('_', ' '), Icons.info_outline, 'neutral'),
+  };
+  final note = p['kind'] == 'needs_assigning' ? 'Still not accepted 1 working hour after escalation'
+      : (p['reason'] ?? p['remarks'] ?? p['question'] ?? p['resolution'] ?? p['subject'] ?? (type == 'edited' && p['to'] is String ? p['to'] : null))?.toString();
+  return (title, icon, tone, note);
+}
+
+/// A row's last line: "Riya: text" for a message, "Clock paused · reason" for an update (Ornate's preview).
+String previewOf(CaseRow r) {
+  final e = r.lastEvent;
+  if (e == null) return r.lastMine ? r.lastText.replaceFirst('You: ', '') : r.lastText;
+  final (title, _, _, note) = eventLook(e.$1, e.$2);
+  return note == null ? title : '$title · $note';
+}

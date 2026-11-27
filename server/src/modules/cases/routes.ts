@@ -87,12 +87,22 @@ export async function caseRoutes(app: FastifyInstance) {
     const items = await withTasks(db, list.map((x) => x.m), me.id);
     const last = await lastMessages(list.map((x) => x.t.id));
     const names = new Map((await db.selectFrom('users').select(['id', 'name']).execute()).map((u) => [u.id, u.name]));
+    const evs = new Map<string, { type: string; payload: string; created_at: Date }>();
+    if (list.length) {
+      const all = await db.selectFrom('task_events').select(['task_id', 'type', 'payload', 'created_at']).where('task_id', 'in', list.map((x) => x.t.id))
+        .where('type', 'not in', ['created', 'structured']).orderBy('created_at').execute();
+      for (const e of all) evs.set(e.task_id, e as never);
+    }
     return list.map((x, i) => {
       const lm = last.get(x.t.id) ?? x.m;
+      const ev = evs.get(x.t.id);
       const by = lm.sender_id === me.id ? 'You' : (names.get(lm.sender_id) ?? '').split(' ')[0];
       const text = lm.body_text ?? lm.transcript ?? (lm.kind === 'voice' ? 'Voice message' : 'File');
-      return { ...items[i]!, party: r.party(x), overdue: r.overdue(x), requesterId: x.senderId,
-        last: { text: `${by}: ${text}`, at: new Date(lm.created_at).toISOString() } };
+      const msgAt = new Date(lm.created_at).getTime();
+      const lastOut = ev && new Date(ev.created_at).getTime() > msgAt
+        ? { kind: 'event', type: ev.type, payload: JSON.parse(ev.payload), by: '', text: '', at: new Date(ev.created_at).toISOString() }
+        : { kind: 'message', by, text: `${by}: ${text}`, mine: lm.sender_id === me.id, at: new Date(msgAt).toISOString() };
+      return { ...items[i]!, party: r.party(x), overdue: r.overdue(x), requesterId: x.senderId, last: lastOut };
     });
   }
 

@@ -179,24 +179,9 @@ class EventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final o = context.o;
     final p = (e['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final (title, icon, tone) = switch (e['type'] as String) {
-      'accepted' => ('Accepted', Icons.check, 'green'), 'completed' => ('Completed', Icons.done_all, 'green'), 'verified' => ('Verified', Icons.verified, 'green'),
-      'closed' => ('Closed', Icons.lock_outline, 'green'), 'reopened' => ('Reopened', Icons.replay, 'orange'), 'question' => ('Question for requester', Icons.help_outline, 'orange'),
-      'answered' => ('Answered', Icons.reply, 'green'), 'blocked' => ('Blocked', Icons.block, 'red'), 'unblocked' => ('Unblocked', Icons.play_arrow, 'green'),
-      'escalated' => ('Escalated', Icons.trending_up, 'red'), 'attended' => ('Escalation attended', Icons.how_to_reg, 'green'),
-      'reassigned' => ('Reassigned', Icons.swap_horiz, 'neutral'), 'reassign_asked' => ('Reassignment requested', Icons.swap_horiz, 'orange'),
-      'reassign_refused' => ('Stays with the owner', Icons.person, 'neutral'), 'declined' => ('Declined', Icons.close, 'orange'),
-      'request' => (p['kind'] == 'reject' ? 'Rejection requested' : 'Transfer requested', Icons.outbox, 'orange'), 'request_refused' => ('Request refused', Icons.close, 'neutral'),
-      'rejected' => ('Rejected', Icons.cancel_outlined, 'red'), 'transferred' => ('Transferred to ${p['toName'] ?? 'another department'}', Icons.east, 'neutral'),
-      'cancelled' => ('Cancelled', Icons.cancel_outlined, 'red'), 'priority_changed' => ('Priority ${p['from']} → ${p['to']}', Icons.flag_outlined, 'neutral'),
-      'edited' => ('Edited', Icons.edit_outlined, 'neutral'), 'warned' => ('Time warning', Icons.timer_outlined, 'orange'),
-      'handed_off' => ('Handed off', Icons.call_split, 'orange'), 'subtask_done' => ('Sub-task finished', Icons.done, 'green'),
-      'subs_cancelled' => ('Completed, open sub-tasks cancelled', Icons.done_all, 'green'), 'status_changed' => (statusLabel('${p['to']}'), Icons.play_arrow, 'green'),
-      final x => (x, Icons.info_outline, 'neutral'),
-    };
+    final (title, icon, tone, note) = eventLook(e['type'] as String, p);
     final (bg, fg) = switch (tone) { 'green' => (o.greenBg, o.green), 'orange' => (o.orangeBg, o.orange), 'red' => (o.redBg, o.red), _ => (o.neutralBg, o.neutral) };
-    final note = p['reason'] ?? p['remarks'] ?? p['question'] ?? p['resolution'] ?? p['subject'] ?? (p['to'] is String && e['type'] == 'edited' ? p['to'] : null);
-    return _card(context, icon, bg, fg, title, by: 'by ${e['by']} · ${DateFormat.Hm().format(DateTime.parse(e['at'] as String).toLocal())}', text: note?.toString());
+    return _card(context, icon, bg, fg, title, by: 'by ${e['by']} · ${DateFormat.Hm().format(DateTime.parse(e['at'] as String).toLocal())}', text: note);
   }
 }
 

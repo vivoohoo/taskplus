@@ -20,6 +20,21 @@ class CaseQueryState extends Notifier<CaseQuery> {
   void set(CaseQuery q) => state = q;
 }
 
+/// Wide screens (WhatsApp Web, as in Ornate): what the right pane shows. `case:<taskId>` or `person:<party>|<tab>`.
+final paneProvider = NotifierProvider<Pane, String?>(Pane.new);
+class Pane extends Notifier<String?> {
+  @override
+  String? build() => null;
+  void show(String? v) => state = v;
+}
+bool isWide(BuildContext context) => MediaQuery.sizeOf(context).width >= 900;
+
+void openCase(BuildContext context, WidgetRef ref, String taskId) =>
+    isWide(context) ? ref.read(paneProvider.notifier).show('case:$taskId') : context.push('/case/$taskId');
+void openPerson(BuildContext context, WidgetRef ref, Party p, String tab) => isWide(context)
+    ? ref.read(paneProvider.notifier).show('person:${p.key}|$tab')
+    : context.push('/person/${Uri.encodeComponent(p.key)}?tab=$tab', extra: p);
+
 final casesProvider = FutureProvider.family<CaseList, CaseQuery>((ref, q) => ref.watch(repositoryProvider).cases(q));
 final caseCountsProvider = FutureProvider<({int my, int queue, int all})>((ref) => ref.watch(repositoryProvider).caseCounts());
 
@@ -151,18 +166,21 @@ class _DeptChip extends StatelessWidget {
 }
 
 /// One ticket: who, the ticket number and subject, the last message.
-class CaseRowTile extends StatelessWidget {
+class CaseRowTile extends ConsumerWidget {
   const CaseRowTile({super.key, required this.row, required this.me});
   final CaseRow row;
   final String me;
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final o = context.o;
     final t = row.task;
-    final mine = row.lastText.startsWith('You:');
-    return InkWell(
+    final active = ref.watch(paneProvider) == 'case:${t.id}';
+    final mine = row.lastMine && row.lastEvent == null;
+    return Material(
+      color: active ? o.panel : Colors.transparent,
+      child: InkWell(
       key: Key('row-${t.id}'),
-      onTap: () => context.push('/case/${t.id}'),
+      onTap: () => openCase(context, ref, t.id),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
         child: Row(children: [
@@ -185,33 +203,34 @@ class CaseRowTile extends StatelessWidget {
                     style: TextStyle(fontSize: 12, color: row.overdue ? o.danger : o.muted)),
                 Row(children: [
                   if (mine) Padding(padding: const EdgeInsets.only(right: 3), child: Icon(Icons.done_all, size: 16, color: o.tick)),
-                  Expanded(child: Text(mine ? row.lastText.substring(5) : row.lastText, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: o.muted))),
-                  const SizedBox(width: 6),
-                  StatusPill(t.status),
+                  Expanded(child: Text(previewOf(row), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: o.muted))),
                 ]),
               ]),
             ),
           ),
         ]),
       ),
-    );
+    ));
   }
 }
 
 /// A person with several open tickets: their summary line; opens their chat.
-class PersonRow extends StatelessWidget {
+class PersonRow extends ConsumerWidget {
   const PersonRow({super.key, required this.rows, required this.me, required this.tab});
   final List<CaseRow> rows;
   final String me, tab;
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final o = context.o;
     final p = rows.first.party;
+    final active = ref.watch(paneProvider) == 'person:${p.key}|$tab';
     final over = rows.any((r) => r.overdue);
     final last = rows.first;
-    return InkWell(
+    return Material(
+      color: active ? o.panel : Colors.transparent,
+      child: InkWell(
       key: Key('person-${p.key}'),
-      onTap: () => context.push('/person/${Uri.encodeComponent(p.key)}?tab=$tab', extra: p),
+      onTap: () => openPerson(context, ref, p, tab),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
         child: Row(children: [
@@ -230,12 +249,12 @@ class PersonRow extends StatelessWidget {
                   Text(listTime(last.lastAt), style: TextStyle(fontSize: 12, color: over ? o.danger : o.muted)),
                 ]),
                 Text(summaryLine(rows, me), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: over ? o.danger : o.muted)),
-                Text('${last.task.ticketNo?.split('-').last ?? ''} · ${last.lastText}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: o.muted)),
+                Text('${last.task.ticketNo?.split('-').last ?? ''} · ${previewOf(last)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: o.muted)),
               ]),
             ),
           ),
         ]),
       ),
-    );
+    ));
   }
 }

@@ -210,17 +210,23 @@ class Party {
 
 /// One task in a tab list.
 class CaseRow {
-  CaseRow({required this.item, required this.party, required this.overdue, required this.requesterId, required this.lastText, required this.lastAt});
+  CaseRow({required this.item, required this.party, required this.overdue, required this.requesterId, required this.lastText, required this.lastAt,
+      this.lastEvent, this.lastMine = false});
   final ChatItem item;
   final Party party;
-  final bool overdue;
+  final bool overdue, lastMine;
   final String requesterId, lastText;
   final DateTime lastAt;
+  /// The last activity was an update (accepted, clock paused…), not a message: its type and payload.
+  final (String, Map<String, dynamic>)? lastEvent;
   Task get task => item.task!;
   factory CaseRow.fromJson(Map<String, dynamic> j) => CaseRow(
         item: ChatItem.fromJson(j), party: Party.fromJson(j['party'] as Map<String, dynamic>), overdue: j['overdue'] == true,
         requesterId: j['requesterId'] as String,
-        lastText: (j['last'] as Map)['text'] as String? ?? '', lastAt: DateTime.parse((j['last'] as Map)['at'] as String));
+        lastText: (j['last'] as Map)['text'] as String? ?? '', lastAt: DateTime.parse((j['last'] as Map)['at'] as String),
+        lastMine: (j['last'] as Map)['mine'] == true,
+        lastEvent: (j['last'] as Map)['kind'] == 'event'
+            ? ((j['last'] as Map)['type'] as String, ((j['last'] as Map)['payload'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{}) : null);
 }
 
 class CaseList {

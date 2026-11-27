@@ -91,8 +91,16 @@ class DemoLogin extends ConsumerWidget {
     ('9800000014', 'HR Lead', 'HR head'),
   ];
 
+  static bool _auto = false;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // ?as=9800000005 opens the demo signed in as that person (for screenshots and shared links).
+    final as = Uri.base.queryParameters['as'];
+    if (as != null && !_auto) {
+      _auto = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => ref.read(authProvider.notifier).signIn(as, 'demo'));
+    }
     final t = Theme.of(context);
     return Scaffold(
       body: SafeArea(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480), child: ListView(padding: const EdgeInsets.all(16), children: [

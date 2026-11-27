@@ -522,8 +522,12 @@ class DemoBackend {
     final replies = messages.where((m) => m['replyTo'] == t['id']).toList();
     final last = replies.isEmpty ? _msg(t['message'] as String) : replies.last;
     final by = last['sender'] == me['id'] ? 'You' : '${_name(last['sender'] as String)}'.split(' ').first;
+    final ev = events.where((e) => e['task'] == t['id'] && !const ['created', 'structured'].contains(e['type'])).lastOrNull;
+    final lastOut = ev != null && (ev['at'] as String).compareTo(last['at'] as String) > 0
+        ? {'kind': 'event', 'type': ev['type'], 'payload': ev['payload'], 'text': '', 'at': ev['at']}
+        : {'kind': 'message', 'text': '$by: ${last['bodyText'] ?? 'Voice message'}', 'mine': last['sender'] == me['id'], 'at': last['at']};
     return {..._item(_msg(t['message'] as String), me['id'] as String), 'party': _party(me, t), 'overdue': !_note(t) && _overdue(t), 'requesterId': _sender(t),
-      'last': {'text': '$by: ${last['bodyText'] ?? 'Voice message'}', 'at': last['at']}};
+      'last': lastOut};
   }
   Map<String, dynamic> _cases(Map<String, dynamic> me, Map<String, String> q) {
     final tab = q['tab'] ?? 'my', chip = q['chip'] ?? 'All', words = (q['q'] ?? '').toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
