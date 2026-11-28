@@ -43,8 +43,15 @@ DemoAi vercelAi() {
   var off = false;
   return (input) async {
     if (off) return null;
-    final r = await dio.post('', data: input);
-    if (r.statusCode == 503 || r.statusCode == 404) off = true; // no key on this site: stop asking
+    final Response<dynamic> r;
+    try {
+      r = await dio.post('', data: input);
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionError) off = true; // no /api/ai here (claude.ai, a local copy): stop asking
+      return null;
+    }
+    // 404/405: this site has no AI function; 503: no key set. Either way, stop asking.
+    if (const [404, 405, 503].contains(r.statusCode)) off = true;
     return r.statusCode == 200 && r.data is Map ? (r.data as Map).cast<String, dynamic>() : null;
   };
 }
