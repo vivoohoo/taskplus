@@ -114,20 +114,25 @@ export function available(c: Ctx): Action[] {
 }
 
 /** Who an escalation goes to; a level nobody holds moves to the next one. */
-export function escalationTargets(c: Pick<Ctx, 'org' | 'task' | 'senderId'>, want: EscalationLevel): { level: EscalationLevel; ids: string[] } {
+export function escalationTargets(c: Pick<Ctx, 'org' | 'task' | 'senderId'> & { thread?: Pick<Thread, 'type' | 'user_a_id' | 'user_b_id'> },
+  want: EscalationLevel): { level: EscalationLevel; ids: string[] } {
   const { org, task: t } = c;
+  // Whose leads: the owner's, else (a person-to-person task nobody accepted yet) the receiver's (owner decision 28 Nov).
+  const receiver = c.thread?.type === 'direct' ? otherUserId(c.thread as Thread, c.senderId) : null;
+  const holder = t.assignee_id ?? receiver;
   const levels: EscalationLevel[] = ['team_lead', 'dept_head', 'management'];
   for (const level of levels.slice(levels.indexOf(want))) {
     let ids: string[] = [];
     if (level === 'team_lead') {
       const team = org.teams.find((x) => x.id === t.team_id);
-      const lead = t.assignee_id ? leadChain(org, t.assignee_id).find((id) => org.users.find((u) => u.id === id)?.role === 'team_lead') : team?.lead_id;
+      const lead = holder ? leadChain(org, holder).find((id) => org.users.find((u) => u.id === id)?.role === 'team_lead') : team?.lead_id;
       ids = lead ? [lead] : [];
     } else if (level === 'dept_head') {
-      const head = org.departments.find((d) => d.id === t.department_id)?.head_user_id;
+      const deptId = t.department_id ?? org.users.find((u) => u.id === holder)?.department_id;
+      const head = org.departments.find((d) => d.id === deptId)?.head_user_id;
       ids = head ? [head] : [];
     } else ids = org.users.filter((u) => u.role === 'admin' && u.is_active).map((u) => u.id);
-    ids = ids.filter((id) => id !== c.senderId);
+    ids = ids.filter((id) => id !== c.senderId && id !== holder);
     if (ids.length) return { level, ids };
   }
   return { level: want, ids: [] };

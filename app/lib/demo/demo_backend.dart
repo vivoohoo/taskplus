@@ -444,16 +444,19 @@ class DemoBackend {
   List<String> _escalationTargets(Map<String, dynamic> t, String want) {
     const levels = ['team_lead', 'dept_head', 'management'];
     final sender = _msg(t['message'] as String)['sender'];
+    // Whose leads: the owner's, else (person-to-person, not accepted yet) the receiver's.
+    final th = _thread(t['thread'] as String);
+    final holder = (t['assignee'] ?? (th['type'] == 'direct' ? (th['a'] == sender ? th['b'] : th['a']) : null)) as String?;
     for (final level in levels.sublist(levels.indexOf(want))) {
       List<String> ids = [];
       if (level == 'team_lead') {
-        final lead = t['assignee'] != null ? leadChain(t['assignee'] as String).where((id) => _user(id)['role'] == 'team_lead').firstOrNull
+        final lead = holder != null ? leadChain(holder).where((id) => _user(id)['role'] == 'team_lead').firstOrNull
             : teams.where((x) => x['id'] == t['team']).firstOrNull?['lead'] as String?;
         ids = [?lead];
       } else if (level == 'dept_head') {
-        ids = [?(_dept(t['dept'] ?? _user(sender)['dept'])['head'] as String?)];
+        ids = [?(_dept(t['dept'] ?? (holder != null ? _user(holder)['dept'] : _user(sender)['dept']))['head'] as String?)];
       }
-      ids = ids.where((x) => x != sender).toList();
+      ids = ids.where((x) => x != sender && x != holder).toList();
       if (ids.isNotEmpty) return [level, ...ids];
     }
     return [want];

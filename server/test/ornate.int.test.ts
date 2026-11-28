@@ -152,6 +152,21 @@ describe('the bell', () => {
   });
 });
 
+describe('person-to-person task not accepted in time', () => {
+  it("escalates to the receiver's team lead, who can then open it", async () => {
+    const { tick } = await import('../src/workflow/timers');
+    const { taskId } = await send('riya', { targetType: 'user', targetId: id('kunal') }, 'Critical: Profit NX down at Om Logistics', { overrides: { priority: 'Critical' } });
+    expect((await as('dhaval').get(`/v1/tasks/${taskId}`)).status).toBe(403);
+    await tick({ db: t.db, realtime: t.app.services.realtime, jobs: () => t.app.services.jobs, log: t.app.log as never }, new Date(Date.now() + 3 * 86_400_000));
+    const task = await t.db.selectFrom('tasks').selectAll().where('id', '=', taskId).executeTakeFirstOrThrow();
+    expect(task.escalation_level).toBe('team_lead');
+    expect(JSON.parse(task.escalated_to)).toEqual([id('dhaval')]);
+    const seen = await as('dhaval').get(`/v1/tasks/${taskId}`);
+    expect(seen.status).toBe(200);
+    expect(seen.body.task.actions).toContain('attend');
+  });
+});
+
 describe('person-to-person tasks are private (owner decision 28 Nov)', () => {
   it('only the two see it; a lead sees it once escalated to them; the Team screen counts it without listing it', async () => {
     const { taskId } = await send('riya', { targetType: 'user', targetId: id('kunal') }, 'Profit NX invoice GST wrong for Sunrise Pharma');

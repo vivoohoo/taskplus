@@ -20,7 +20,8 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
   const now = nowDate.getTime();
   const [org, holidays] = await Promise.all([loadOrg(db), loadHolidays(db)]);
   const tasks = await db.selectFrom('tasks').selectAll().where('status', 'in', ['Open', 'Accepted', 'InProgress', 'WaitingInfo', 'WaitingDept', 'Blocked', 'Completed', 'Verified']).execute();
-  const direct = new Set((await db.selectFrom('threads').select('id').where('type', '=', 'direct').execute()).map((x) => x.id));
+  const threads = new Map((await db.selectFrom('threads').select(['id', 'type', 'user_a_id', 'user_b_id']).execute()).map((x) => [x.id, x]));
+  const direct = new Set([...threads.values()].filter((x) => x.type === 'direct').map((x) => x.id));
   const shifts = new Map((await db.selectFrom('users').select(['id', 'shift']).execute()).map((u) => [u.id, shiftOf(u.shift)]));
   const senders = new Map((await db.selectFrom('messages').select(['id', 'sender_id']).where('id', 'in', tasks.length ? tasks.map((t) => t.message_id) : ['00000000-0000-0000-0000-000000000000']).execute()).map((m) => [m.id, m.sender_id]));
 
@@ -41,7 +42,7 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
         const lim = LIMITS[t.priority];
         const waited = workMs(new Date(t.queued_at ?? t.created_at).getTime(), now, ACCEPT_HOURS, holidays);
         if (!t.auto_escalated_at && waited > lim.acceptMs) {
-          const target = escalationTargets({ org, task: t, senderId }, 'team_lead');
+          const target = escalationTargets({ org, task: t, senderId, thread: threads.get(t.thread_id) }, 'team_lead');
           await record(t, 'escalated', { level: target.level, to: target.ids, reason: `Not accepted within ${lim.accept}.` },
             { escalation_level: target.level, escalated_to: JSON.stringify(target.ids), auto_escalated_at: nowDate }, [...target.ids, senderId], `not accepted within ${lim.accept}: escalated`);
         } else if (t.auto_escalated_at && !t.head_alerted && workMs(new Date(t.auto_escalated_at).getTime(), now, ACCEPT_HOURS, holidays) >= HOUR) {
