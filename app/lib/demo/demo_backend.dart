@@ -735,7 +735,7 @@ class DemoBackend {
         final f = q['filter'];
         final list = tasks.where((t) => f == 'sent_by_me'
             ? _msg(t['message'] as String)['sender'] == id && !['Closed', 'Rejected', 'Transferred', 'Cancelled', 'Verified'].contains(t['status'])
-            : f == 'overdue' ? _pending(me, t) && _overdue(t) : f == 'closed' ? t['status'] == 'Closed' : _pending(me, t)).toList();
+            : f == 'overdue' ? _pending(me, t) && _overdue(t) : f == 'closed' ? t['status'] == 'Closed' && (t['assignee'] == id || _msg(t['message'] as String)['sender'] == id) : _pending(me, t)).toList();
         return {'items': [for (final t in list) _item(_msg(t['message'] as String), id)], 'nextCursor': null};
       case ('GET', ['tasks', final tid, 'history']):
         final t = _task(tid);

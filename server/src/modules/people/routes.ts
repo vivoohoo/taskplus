@@ -148,10 +148,14 @@ export async function peopleRoutes(app: FastifyInstance) {
     const me = await currentUser(db, req.userId);
     const like = `%${q.replace(/[%_[]/g, '[$&]')}%`;
     const rows = await db.selectFrom('tasks').innerJoin('messages', 'messages.id', 'tasks.message_id').innerJoin('threads', 'threads.id', 'tasks.thread_id')
-      .selectAll('messages').select(['threads.type as tType', 'threads.user_a_id', 'threads.user_b_id', 'threads.requester_id', 'threads.department_id as tDept'])
+      .selectAll('messages').select(['threads.type as tType', 'threads.user_a_id', 'threads.user_b_id', 'threads.requester_id', 'threads.department_id as tDept',
+        'tasks.assignee_id as tAssignee', 'tasks.escalated_to as tEscalatedTo'])
       .where((eb) => eb.or([eb('tasks.ticket_no', 'like', like), eb('tasks.subject', 'like', like), eb('tasks.customer_name', 'like', like), eb('messages.body_text', 'like', like)]))
       .orderBy('messages.created_at', 'desc').top(50).execute();
-    const visible = rows.filter((r) => r.tType === 'direct' ? r.user_a_id === me.id || r.user_b_id === me.id : r.requester_id === me.id || r.tDept === me.department_id).slice(0, 20);
+    // Same rule as opening the task: private notes only their writer; person to person the two, the reassignee, or whoever it's escalated to.
+    const visible = rows.filter((r) => r.tType === 'self' ? r.requester_id === me.id
+      : r.tType === 'direct' ? r.user_a_id === me.id || r.user_b_id === me.id || r.tAssignee === me.id || escalatedTo({ escalated_to: r.tEscalatedTo } as never).includes(me.id)
+      : r.requester_id === me.id || (!!me.department_id && r.tDept === me.department_id)).slice(0, 20);
     return { items: await withTasks(db, visible as never, me.id) };
   });
 }

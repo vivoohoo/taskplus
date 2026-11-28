@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestApp, type TestApp } from './helpers/app';
 
 let t: TestApp;
-const P = { riya: '9800000002', karan: '9800000003', supLead: '9800000001', tushar: '9800000004', dhaval: '9800000005', kunal: '9800000011', amit: '9800000012' };
+const P = { riya: '9800000002', karan: '9800000003', supLead: '9800000001', tushar: '9800000004', dhaval: '9800000005', kunal: '9800000011', amit: '9800000012', admin: '9800000010' };
 const tok: Record<string, string> = {};
 let dev = '', sup = '';
 
@@ -82,6 +82,10 @@ describe('private notes', () => {
     expect(ticket(await cases('riya', 'tab=my'), r.taskId)?.party.key).toBe('self');
     expect(ticket(await cases('supLead', 'tab=all'), r.taskId)).toBeUndefined();
     expect((await as('supLead').get(`/v1/tasks/${r.taskId}`)).status).toBe(403);
+    // Search too: Admin has no department, which must not match a note's empty department.
+    const found = async (k: keyof typeof P) => JSON.stringify((await as(k).get('/v1/tasks/search?q=Mehta%20Traders')).body).includes(r.taskId);
+    expect(await found('riya')).toBe(true);
+    for (const k of ['admin', 'supLead', 'karan'] as const) expect(await found(k), k).toBe(false);
     expect((await as('riya').post(`/v1/tasks/${r.taskId}/actions/close`)).body.task).toMatchObject({ status: 'Closed', actions: ['reopen'] });
     expect((await as('riya').post(`/v1/tasks/${r.taskId}/actions/reopen`)).body.task.status).toBe('InProgress');
   });
