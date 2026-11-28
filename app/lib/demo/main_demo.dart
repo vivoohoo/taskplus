@@ -26,6 +26,8 @@ import '../features/composer/composer.dart' show speechHost;
 
 final demoSpeech = ClaudeSpeech();
 VercelSync? demoShared;
+/// What /api/ai said about itself (null: no AI on this site).
+String? demoAiStatus;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,6 +37,7 @@ Future<void> main() async {
   // On Vercel with a database: everyone shares the demo's data. Elsewhere it lives in this tab.
   final sync = await VercelSync.connect();
   demoShared = sync;
+  demoAiStatus = await vercelAiStatus();
   // On Vercel the AI fills in each new task (api/ai.js), with or without the shared database; elsewhere the keyword reader does.
   final api = DemoApi(null, sync, vercelAi());
   loginPage = () => const DemoLogin();
@@ -144,6 +147,11 @@ class DemoLogin extends ConsumerWidget {
             },
             child: const Text('Start over'),
           ),
+        ]),
+        Row(children: [
+          Icon(Icons.auto_awesome_outlined, size: 16, color: t.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(child: Text(demoAiStatus ?? 'AI: off on this site (simple keyword reader instead).', style: t.textTheme.bodySmall)),
         ]),
         const SizedBox(height: 16),
         for (final (phone, name, role) in _people)

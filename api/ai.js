@@ -64,7 +64,14 @@ function clean(r, modules) {
 
 module.exports = async (req, res) => {
   res.setHeader('cache-control', 'no-store');
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only.' });
+  // GET: a self-check anyone can open in the browser (/api/ai). Says whether the key is set and works, and which build this is.
+  if (req.method === 'GET') {
+    const build = (process.env.VERCEL_GIT_COMMIT_SHA || 'unknown').slice(0, 7);
+    if (!KEY) return res.status(200).json({ ai: 'off', why: 'GROQ_API_KEY is not set for this deployment. Add it in Settings > Environment Variables, then Redeploy.', build });
+    const r = await fetch('https://api.groq.com/openai/v1/models', { headers: { authorization: `Bearer ${KEY}` }, signal: AbortSignal.timeout(8000) }).catch((e) => ({ ok: false, status: e.message }));
+    return res.status(200).json(r.ok ? { ai: 'on', model: MODEL, build } : { ai: 'off', why: `Groq refused the key (${r.status}). Make a new key at console.groq.com and replace it.`, build });
+  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'GET or POST only.' });
   if (!KEY) return res.status(503).json({ error: 'No AI key. Add GROQ_API_KEY in Vercel > Settings > Environment Variables.' });
   const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
   // Anyone with the link can call this: keep requests small so the free quota lasts.

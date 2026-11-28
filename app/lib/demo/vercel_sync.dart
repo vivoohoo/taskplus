@@ -55,3 +55,15 @@ DemoAi vercelAi() {
     return r.statusCode == 200 && r.data is Map ? (r.data as Map).cast<String, dynamic>() : null;
   };
 }
+
+/// One line for the sign-in page: is the AI on here, and if not, why. Null when this site has no /api/ai.
+Future<String?> vercelAiStatus() async {
+  try {
+    final r = await Dio(BaseOptions(receiveTimeout: const Duration(seconds: 10))).get(Uri.base.resolve('/api/ai').toString());
+    final j = r.data is Map ? r.data as Map : null;
+    if (j == null) return null;
+    return j['ai'] == 'on' ? 'AI: on (build ${j['build']}). New tasks are filled in by the AI.' : 'AI: off. ${j['why']} (build ${j['build']})';
+  } catch (_) {
+    return null;
+  }
+}
