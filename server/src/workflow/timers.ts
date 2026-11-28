@@ -20,6 +20,7 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
   const now = nowDate.getTime();
   const [org, holidays] = await Promise.all([loadOrg(db), loadHolidays(db)]);
   const tasks = await db.selectFrom('tasks').selectAll().where('status', 'in', ['Open', 'Accepted', 'InProgress', 'WaitingInfo', 'WaitingDept', 'Blocked', 'Completed', 'Verified']).execute();
+  const direct = new Set((await db.selectFrom('threads').select('id').where('type', '=', 'direct').execute()).map((x) => x.id));
   const shifts = new Map((await db.selectFrom('users').select(['id', 'shift']).execute()).map((u) => [u.id, shiftOf(u.shift)]));
   const senders = new Map((await db.selectFrom('messages').select(['id', 'sender_id']).where('id', 'in', tasks.length ? tasks.map((t) => t.message_id) : ['00000000-0000-0000-0000-000000000000']).execute()).map((m) => [m.id, m.sender_id]));
 
@@ -55,7 +56,8 @@ export async function tick(d: TimerDeps, nowDate = new Date()) {
         const warned = JSON.parse(t.warned) as string[];
         const mark = usedMs > lim ? 'over' : lim - usedMs <= HOUR ? '1h' : usedMs >= 0.75 * lim ? '75' : null;
         if (mark && !warned.includes(mark)) {
-          const lead = leadChain(org, t.assignee_id)[0];
+          // A person-to-person task stays private: its overdue alert goes to the owner only (owner decision 28 Nov).
+          const lead = direct.has(t.thread_id) ? undefined : leadChain(org, t.assignee_id)[0];
           const to = mark === 'over' ? [t.assignee_id, ...(lead ? [lead] : [])] : [t.assignee_id];
           const text = mark === 'over' ? 'is overdue' : mark === '1h' ? 'has 1 working hour left' : 'has used 75% of its time';
           await record(t, 'warned', { kind: mark }, { warned: JSON.stringify([...warned, mark]) }, to, text);

@@ -27,9 +27,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const now = Date.now(), from = now - 2 * WEEK;
     const holidays = await loadHolidays(db);
 
-    const tasks = (await db.selectFrom('tasks').innerJoin('messages', 'messages.id', 'tasks.message_id')
-      .selectAll('tasks').select(['messages.sender_id as senderId']).where('tasks.department_id', '=', me.department_id).execute())
+    const deptUsers = org.users.filter((u) => u.department_id === me.department_id).map((u) => u.id);
+    const tasks = (await db.selectFrom('tasks').innerJoin('messages', 'messages.id', 'tasks.message_id').innerJoin('threads', 'threads.id', 'tasks.thread_id')
+      .selectAll('tasks').select(['messages.sender_id as senderId', 'threads.type as threadType'])
+      // Department tasks, plus person-to-person tasks held by someone in the department (counted only, see `rows`).
+      .where((eb) => eb.or([eb('tasks.department_id', '=', me.department_id), eb.and([eb('threads.type', '=', 'direct'),
+        ...(deptUsers.length ? [eb('tasks.assignee_id', 'in', deptUsers)] : [eb.val(false)])])]))
+      .execute())
       .filter((t) => head || (t.team_id && teams.includes(t.team_id)) || (t.assignee_id && teams.includes(org.users.find((u) => u.id === t.assignee_id)?.team_id ?? '')));
+    // Owner decision 28 Nov: leads see person-to-person tasks only as numbers, never as a row with its subject.
+    const rows = tasks.filter((t) => t.threadType !== 'direct');
     const people = org.users.filter((u) => u.is_active && u.department_id === me.department_id && u.team_id && teams.includes(u.team_id));
     const ids = tasks.map((t) => t.id);
     const events = ids.length ? await db.selectFrom('task_events').select(['task_id', 'type', 'payload', 'actor_id', 'created_at'])
@@ -62,19 +69,19 @@ export async function analyticsRoutes(app: FastifyInstance) {
       if (e.type === 'attended' && e.actor_id) attended.set(nameOf(e.actor_id), (attended.get(nameOf(e.actor_id)) ?? 0) + 1);
     }
 
-    const raised = tasks.filter((t) => +new Date(t.created_at) >= from);
+    const raised = rows.filter((t) => +new Date(t.created_at) >= from);
     const requesters = [...new Set(raised.map((t) => t.senderId))].map((id) => {
       const mine = raised.filter((t) => t.senderId === id);
       const u = org.users.find((x) => x.id === id);
       return { name: u?.name ?? '', department: org.departments.find((d) => d.id === u?.department_id)?.name ?? '', count: mine.length,
         sentBack: mine.filter((t) => t.status === 'Rejected' || t.status === 'Transferred').length };
     }).sort((a, b) => b.count - a.count).slice(0, 5);
-    const customers = [...new Set(tasks.map((t) => t.customer_name).filter((x): x is string => !!x))].map((name) => {
-      const cs = tasks.filter((t) => t.customer_name === name);
+    const customers = [...new Set(rows.map((t) => t.customer_name).filter((x): x is string => !!x))].map((name) => {
+      const cs = rows.filter((t) => t.customer_name === name);
       return { name, total: cs.length, open: cs.filter((t) => OPEN.includes(t.status)).length, overdue: cs.filter(overdue).length, recent: cs.filter((t) => +new Date(t.created_at) >= from).length };
     }).sort((a, b) => b.total - a.total).slice(0, 10);
     const repeats = raised.filter((t) => events.some((e) => e.task_id === t.id && e.type === 'reopened')
-      || tasks.some((o) => o.id !== t.id && +new Date(o.created_at) < +new Date(t.created_at) && +new Date(t.created_at) - +new Date(o.created_at) <= 30 * DAY
+      || rows.some((o) => o.id !== t.id && +new Date(o.created_at) < +new Date(t.created_at) && +new Date(t.created_at) - +new Date(o.created_at) <= 30 * DAY
         && !!norm(t.subject) && norm(o.subject) === norm(t.subject)))
       .map((t) => ({ ...card(t), why: events.some((e) => e.task_id === t.id && e.type === 'reopened') ? 'Reopened' : 'Raised before' }));
 
@@ -82,11 +89,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
       scope: head ? `${org.departments.find((d) => d.id === me.department_id)?.name ?? ''} department` : teams.map(teamName).map((n) => `${n} team`).join(' + '),
       kpis: { completed: done2w.length, onTime: onTime(done2w), overdueNow: tasks.filter(overdue).length, reopened: count('reopened') },
       attention: {
-        dueSoon: tasks.filter((t) => OPEN.includes(t.status) && !overdue(t) && +new Date(t.due_at) - now <= 2 * 3600_000).map(card),
-        waiting: tasks.filter((t) => t.status === 'WaitingInfo' || t.status === 'Blocked').map((t) => ({ ...card(t),
+        dueSoon: rows.filter((t) => OPEN.includes(t.status) && !overdue(t) && +new Date(t.due_at) - now <= 2 * 3600_000).map(card),
+        waiting: rows.filter((t) => t.status === 'WaitingInfo' || t.status === 'Blocked').map((t) => ({ ...card(t),
           stuckMs: workMs(+new Date(t.updated_at), now, [9, 18], holidays) })).sort((a, b) => b.stuckMs - a.stuckMs),
         queues: (head ? org.teams.filter((x) => x.department_id === me.department_id).map((x) => x.id) : teams).map((id) => {
-          const q = tasks.filter((t) => t.status === 'Open' && (t.team_id === id || (!t.team_id && head)));
+          const q = rows.filter((t) => t.status === 'Open' && (t.team_id === id || (!t.team_id && head)));
           const oldest = q.length ? Math.min(...q.map((t) => +new Date(t.queued_at ?? t.created_at))) : null;
           return { team: teamName(id), count: q.length, oldestMs: oldest ? workMs(oldest, now, [9, 20], holidays) : 0 };
         }).filter((q) => q.count),
@@ -111,7 +118,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       sources: requesters,
       customers,
       repeats,
-      oldest: tasks.filter((t) => OPEN.includes(t.status)).sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at)).slice(0, 5)
+      oldest: rows.filter((t) => OPEN.includes(t.status)).sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at)).slice(0, 5)
         .map((t) => ({ ...card(t), ageMs: now - +new Date(t.created_at) })),
     };
   });

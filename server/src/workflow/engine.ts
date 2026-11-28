@@ -32,6 +32,10 @@ export interface Ctx {
 
 const json = <T>(s: string | null | undefined, d: T): T => { try { return s ? (JSON.parse(s) as T) : d; } catch { return d; } };
 export const escalatedTo = (t: Task) => json<string[]>(t.escalated_to, []);
+/** Owner decision 28 Nov: a person-to-person task is private to the two people (and whoever it's reassigned to).
+ *  A lead sees it only once it's escalated to them, or a staff request (reassign, reject, transfer) is waiting on them. */
+export const hiddenFromLeads = (thread: Pick<Thread, 'type'>, t: Task, meId: string) =>
+  thread.type === 'direct' && !escalatedTo(t).includes(meId) && !pendingRequest(t) && !t.reassign_requested_by;
 export const pendingRequest = (t: Task) => json<{ kind: 'reject' | 'transfer'; by: string; reason: string; departmentId?: string } | null>(t.request, null);
 
 /** Roles the viewer has on this task. */
@@ -46,7 +50,7 @@ function roles(c: Ctx) {
   const recipient = !requester && (thread.type === 'direct'
     ? otherUserId(thread, c.senderId) === me.id
     : me.department_id === t.department_id && (!t.team_id || me.team_id === t.team_id || myTeams.includes(t.team_id)));
-  return { requester, assignee, lead: lead && !requester, recipient, staff: me.role === 'staff' };
+  return { requester, assignee, lead: lead && !requester && !hiddenFromLeads(thread, t, me.id), recipient, staff: me.role === 'staff' };
 }
 
 /** The buttons this person gets on this task. */
@@ -140,7 +144,8 @@ export async function run(c: Ctx, action: Action, body: unknown): Promise<Result
   const upd = (fields: Record<string, unknown>, onlyIf: TaskStatus[] = [t.status]) =>
     db.updateTable('tasks').set({ ...fields, updated_at: now }).where('id', '=', t.id).where('status', 'in', onlyIf).executeTakeFirst()
       .then((r) => { if (!Number(r.numUpdatedRows)) throw conflict('CHANGED', 'This task just changed. Refresh and try again.'); });
-  const leads = () => (t.assignee_id ? leadChain(org, t.assignee_id) : escalationTargets(c, 'team_lead').ids).slice(0, 1);
+  const leads = () => (c.thread.type === 'direct' && !pendingRequest(t) && action !== 'ask_reassign' ? []
+    : (t.assignee_id ? leadChain(org, t.assignee_id) : escalationTargets(c, 'team_lead').ids).slice(0, 1));
 
   switch (action) {
     case 'accept': {

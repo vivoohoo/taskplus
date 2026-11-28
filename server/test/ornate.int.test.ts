@@ -152,14 +152,30 @@ describe('the bell', () => {
   });
 });
 
-describe('who can open a person-to-person task', () => {
-  it("sender, owner, the owner's leads and head; not others", async () => {
+describe('person-to-person tasks are private (owner decision 28 Nov)', () => {
+  it('only the two see it; a lead sees it once escalated to them; the Team screen counts it without listing it', async () => {
     const { taskId } = await send('riya', { targetType: 'user', targetId: id('kunal') }, 'Profit NX invoice GST wrong for Sunrise Pharma');
     await as('kunal').post(`/v1/tasks/${taskId}/actions/accept`);
-    for (const who of ['riya', 'kunal', 'dhaval', 'tushar'] as const) {
-      expect((await as(who).get(`/v1/tasks/${taskId}`)).status, who).toBe(200);
-      expect((await as(who).get(`/v1/tasks/${taskId}/history`)).status, who).toBe(200);
+    for (const who of ['riya', 'kunal'] as const) expect((await as(who).get(`/v1/tasks/${taskId}`)).status, who).toBe(200);
+    for (const who of ['dhaval', 'tushar', 'amit', 'karan'] as const) {
+      expect((await as(who).get(`/v1/tasks/${taskId}`)).status, who).toBe(403);
+      expect((await as(who).get(`/v1/tasks/${taskId}/history`)).status, who).toBe(403);
+      expect(ticket(await cases(who, 'tab=all'), taskId), who).toBeUndefined();
     }
-    for (const who of ['amit', 'karan'] as const) expect((await as(who).get(`/v1/tasks/${taskId}`)).status, who).toBe(403);
+    expect((await as('dhaval').post(`/v1/tasks/${taskId}/reassign`, { assigneeId: id('dhaval') })).status).toBe(403);
+
+    // Counted on Dhaval's Team screen (Kunal's active work), never shown as a row.
+    const team = (await as('dhaval').get('/v1/analytics/team')).body;
+    expect(team.people.find((p: { id: string }) => p.id === id('kunal')).active).toBeGreaterThan(0);
+    expect(JSON.stringify(team)).not.toContain(taskId);
+
+    // Escalated to the team lead: now Dhaval sees it and can act on it; the head still doesn't.
+    const e = await as('kunal').post(`/v1/tasks/${taskId}/actions/escalate`, { level: 'team_lead', reason: 'Needs a second pair of eyes' });
+    expect(e.body.task.escalatedTo).toEqual([id('dhaval')]);
+    const seen = await as('dhaval').get(`/v1/tasks/${taskId}`);
+    expect(seen.status).toBe(200);
+    expect(seen.body.task.actions).toEqual(expect.arrayContaining(['attend', 'reassign']));
+    expect(ticket(await cases('dhaval', 'tab=my'), taskId)).toBeTruthy();
+    expect((await as('tushar').get(`/v1/tasks/${taskId}`)).status).toBe(403);
   });
 });

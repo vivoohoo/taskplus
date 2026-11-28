@@ -34,8 +34,10 @@ function rules(org: OrgSnapshot, me: User, now: number) {
 
   const canView = (r: Row) => {
     if (note(r)) return r.senderId === me.id;
+    // Person to person: private to the two and whoever it's reassigned or escalated to (owner decision 28 Nov).
+    if (r.th.type === 'direct') return r.senderId === me.id || r.t.assignee_id === me.id || otherUserId(r.th, r.senderId) === me.id
+      || escalatedToMe(r.t) || (!!(r.t.request || r.t.reassign_requested_by) && leadFor(r));
     if (r.senderId === me.id || r.t.assignee_id === me.id) return true;
-    if (r.th.type === 'direct' && otherUserId(r.th, r.senderId) === me.id) return true;
     if (head(r.t) || leadFor(r)) return true;
     if (led.includes(user(r.senderId)?.team_id ?? '')) return true; // raised by a team they lead
     return canAccept(r);

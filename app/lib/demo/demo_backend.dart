@@ -392,7 +392,7 @@ class DemoBackend {
     final requester = sender == me['id'], assignee = t['assignee'] == me['id'], staff = me['role'] == 'staff';
     final myTeams = teamsLedBy(me);
     final head = me['role'] == 'dept_head' && me['dept'] == t['dept'];
-    final lead = !requester && (head || (t['assignee'] != null && manages(me, t['assignee'] as String)) || (t['team'] != null && myTeams.contains(t['team'])));
+    final lead = !requester && !_hiddenFromLeads(me, t) && (head || (t['assignee'] != null && manages(me, t['assignee'] as String)) || (t['team'] != null && myTeams.contains(t['team'])));
     final recipient = !requester && (th['type'] == 'direct' ? (th['a'] == me['id'] || th['b'] == me['id'])
         : me['dept'] == t['dept'] && (t['team'] == null || me['team'] == t['team'] || myTeams.contains(t['team'])));
     final s = t['status'] as String, out = <String>{};
@@ -588,8 +588,17 @@ class DemoBackend {
   }
   bool _leadFor(Map<String, dynamic> me, Map<String, dynamic> t) => (me['role'] == 'dept_head' && me['dept'] == t['dept'])
       || (t['assignee'] != null && manages(me, t['assignee'] as String)) || (t['team'] != null && teamsLedBy(me).contains(t['team']));
+  /// Person to person: private to the two and whoever it's reassigned or escalated to (owner decision 28 Nov).
+  bool _hiddenFromLeads(Map<String, dynamic> me, Map<String, dynamic> t) => _thread(t['thread'] as String)['type'] == 'direct'
+      && !(t['escalatedTo'] as List).contains(me['id']) && t['request'] == null && t['reassignAsker'] == null;
+
   bool _canView(Map<String, dynamic> me, Map<String, dynamic> t) {
     if (_note(t)) return _sender(t) == me['id'];
+    final dth = _thread(t['thread'] as String);
+    if (dth['type'] == 'direct') {
+      return _sender(t) == me['id'] || t['assignee'] == me['id'] || dth['a'] == me['id'] || dth['b'] == me['id']
+          || (t['escalatedTo'] as List).contains(me['id']) || (!_hiddenFromLeads(me, t) && _leadFor(me, t));
+    }
     if (_sender(t) == me['id'] || t['assignee'] == me['id'] || _leadFor(me, t)) return true;
     final th = _thread(t['thread'] as String);
     if (th['type'] == 'direct' && (th['a'] == me['id'] || th['b'] == me['id'])) return true;
@@ -867,22 +876,27 @@ class DemoBackend {
     final led = teamsLedBy(me);
     if (led.isEmpty) throw _Err(403, 'FORBIDDEN', 'The Team screen is for team leads and department heads.');
     final head = me['role'] == 'dept_head';
-    final mine = tasks.where((t) => t['dept'] == me['dept'] && (head || led.contains(t['team']) || (t['assignee'] != null && led.contains(_user(t['assignee'] as String)['team'])))).toList();
+    // Department tasks, plus person-to-person tasks held by someone in the department: those are counted only, never listed.
+    bool direct(Map<String, dynamic> t) => _thread(t['thread'] as String)['type'] == 'direct';
+    final mine = tasks.where((t) => (t['dept'] == me['dept'] || (direct(t) && t['assignee'] != null && _user(t['assignee'] as String)['dept'] == me['dept']))
+        && (head || led.contains(t['team']) || (t['assignee'] != null && led.contains(_user(t['assignee'] as String)['team'])))).toList();
+    final rows = mine.where((t) => !direct(t)).toList();
     final done = mine.where((t) => ['Completed', 'Verified', 'Closed'].contains(t['status'])).toList();
     Map<String, dynamic> card(Map<String, dynamic> t) => {'id': t['id'], 'threadId': t['thread'], 'ticketNo': t['ticketNo'], 'subject': t['subject'],
       'status': t['status'], 'priority': t['priority'], 'assignee': _name(t['assignee'] as String?)};
     final open = mine.where((t) => ['Open', ..._active].contains(t['status'])).toList();
+    final openRows = open.where((t) => !direct(t)).toList();
     final people = users.where((u) => u['dept'] == me['dept'] && led.contains(u['team'])).toList();
     int count(String type) => events.where((e) => e['type'] == type && mine.any((t) => t['id'] == e['task'])).length;
     return {
       'scope': head ? '${_dept(me['dept'])['name']} department' : led.map((x) => '${_team(x)['name']} team').join(' + '),
       'kpis': {'completed': done.length, 'onTime': done.isEmpty ? null : 1.0, 'overdueNow': open.where(_overdue).length, 'reopened': count('reopen')},
       'attention': {
-        'dueSoon': [for (final t in open) if (!_overdue(t) && t['clock'] != 'paused' && DateTime.parse(t['due'] as String).difference(now()).inHours < 2) card(t)],
-        'waiting': [for (final t in open) if (t['status'] == 'WaitingInfo' || t['status'] == 'Blocked') {...card(t), 'stuckMs': now().difference(DateTime.parse(t['updated'] as String)).inMilliseconds}],
+        'dueSoon': [for (final t in openRows) if (!_overdue(t) && t['clock'] != 'paused' && DateTime.parse(t['due'] as String).difference(now()).inHours < 2) card(t)],
+        'waiting': [for (final t in openRows) if (t['status'] == 'WaitingInfo' || t['status'] == 'Blocked') {...card(t), 'stuckMs': now().difference(DateTime.parse(t['updated'] as String)).inMilliseconds}],
         'queues': [for (final x in (head ? [for (final t in teams) if (t['dept'] == me['dept']) t['id']] : led))
-          if (open.any((t) => t['status'] == 'Open' && (t['team'] == x || (t['team'] == null && head))))
-            {'team': _team(x)['name'], 'count': open.where((t) => t['status'] == 'Open' && t['team'] == x).length, 'oldestMs': 0}],
+          if (openRows.any((t) => t['status'] == 'Open' && (t['team'] == x || (t['team'] == null && head))))
+            {'team': _team(x)['name'], 'count': openRows.where((t) => t['status'] == 'Open' && t['team'] == x).length, 'oldestMs': 0}],
       },
       'thisMonth': {'done': done.length, 'onTime': done.isEmpty ? null : 1.0, 'avgMs': null},
       'lastMonth': {'done': 0, 'onTime': null, 'avgMs': null},
@@ -898,13 +912,13 @@ class DemoBackend {
         'open': open.where((t) => t['team'] == x['id'] || (t['assignee'] != null && _user(t['assignee'] as String)['team'] == x['id'])).length,
         'overdue': open.where((t) => _overdue(t) && (t['team'] == x['id'] || (t['assignee'] != null && _user(t['assignee'] as String)['team'] == x['id']))).length,
         'done': done.where((t) => t['assignee'] != null && _user(t['assignee'] as String)['team'] == x['id']).length, 'onTime': null}] : [],
-      'sources': [for (final s in {for (final t in mine) _msg(t['message'] as String)['sender'] as String})
-        {'name': _name(s), 'department': _dept(_user(s)['dept'])['name'], 'count': mine.where((t) => _msg(t['message'] as String)['sender'] == s).length, 'sentBack': 0}],
-      'customers': [for (final c in {for (final t in mine) if (t['customerName'] != null) t['customerName'] as String})
-        {'name': c, 'total': mine.where((t) => t['customerName'] == c).length, 'open': open.where((t) => t['customerName'] == c).length,
-          'overdue': open.where((t) => t['customerName'] == c && _overdue(t)).length}],
+      'sources': [for (final s in {for (final t in rows) _msg(t['message'] as String)['sender'] as String})
+        {'name': _name(s), 'department': _dept(_user(s)['dept'])['name'], 'count': rows.where((t) => _msg(t['message'] as String)['sender'] == s).length, 'sentBack': 0}],
+      'customers': [for (final c in {for (final t in rows) if (t['customerName'] != null) t['customerName'] as String})
+        {'name': c, 'total': rows.where((t) => t['customerName'] == c).length, 'open': openRows.where((t) => t['customerName'] == c).length,
+          'overdue': openRows.where((t) => t['customerName'] == c && _overdue(t)).length}],
       'repeats': [],
-      'oldest': [for (final t in (open..sort((a, b) => (a['created'] as String).compareTo(b['created'] as String))).take(5))
+      'oldest': [for (final t in (openRows..sort((a, b) => (a['created'] as String).compareTo(b['created'] as String))).take(5))
         {...card(t), 'ageMs': now().difference(DateTime.parse(t['created'] as String)).inMilliseconds}],
     };
   }

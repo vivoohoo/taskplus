@@ -9,7 +9,7 @@ import { canSeeThread, currentUser, otherUserId, threadRooms } from '../access';
 import { taskDto } from '../dto';
 import { loadMessage, subtaskSettled, warningsFor, withTasks } from '../messages/service';
 import { loadHolidays } from '../../workflow/clock';
-import { ACTIONS, run, type Action, type Ctx } from '../../workflow/engine';
+import { ACTIONS, escalatedTo, hiddenFromLeads, run, type Action, type Ctx } from '../../workflow/engine';
 import { loadOrg, manages, teamsLedBy } from '../org';
 import { kindOf } from '../people/routes';
 
@@ -24,7 +24,8 @@ export async function taskRoutes(app: FastifyInstance) {
     if (!task) throw notFound('Task not found.');
     const thread = await db.selectFrom('threads').selectAll().where('id', '=', task.thread_id).executeTakeFirstOrThrow();
     // The owner's leads (up the reporting line) and department head may open it too, even in a person-to-person chat.
-    if (!canSeeThread(me, thread) && task.assignee_id !== me.id && !(thread.type !== 'self' && task.assignee_id && manages(await loadOrg(db), me.id, task.assignee_id))) throw forbidden();
+    if (!canSeeThread(me, thread) && task.assignee_id !== me.id && !escalatedTo(task).includes(me.id)
+      && !(thread.type !== 'self' && !hiddenFromLeads(thread, task, me.id) && task.assignee_id && manages(await loadOrg(db), me.id, task.assignee_id))) throw forbidden();
     const senderId = (await db.selectFrom('messages').select('sender_id').where('id', '=', task.message_id).executeTakeFirstOrThrow()).sender_id;
     return { task, thread, senderId };
   }
@@ -109,7 +110,7 @@ export async function taskRoutes(app: FastifyInstance) {
     const org = await loadOrg(db);
     const isHead = me.role === 'dept_head' && !!deptId && me.department_id === deptId;
     // A team lead may move work in the teams they look after (theirs and those of leads reporting to them).
-    const leadOfIt = !!task.assignee_id ? manages(org, me.id, task.assignee_id) : !!task.team_id && teamsLedBy(org, me.id).includes(task.team_id);
+    const leadOfIt = !hiddenFromLeads(thread, task, me.id) && (!!task.assignee_id ? manages(org, me.id, task.assignee_id) : !!task.team_id && teamsLedBy(org, me.id).includes(task.team_id));
     if (!isHead && !leadOfIt && task.assignee_id !== me.id) throw forbidden('Only the assignee, their team lead or the department head can reassign.');
     const target = await db.selectFrom('users').select(['id', 'department_id']).where('id', '=', assigneeId).where('is_active', '=', true).executeTakeFirst();
     if (!target || !deptId || target.department_id !== deptId) throw badRequest('Choose someone in the same department.');

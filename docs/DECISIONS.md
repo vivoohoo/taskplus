@@ -61,6 +61,8 @@ Keep Ornate Samanvay's UI and basic features with every Task Plus feature; Phase
 | What the sender sees | One line under their message: ticket number, subject, who has it, status. No cards, no buttons, in the app and the demo. Replaces D5 (sender sees the AI card), D4 (sender cancels) and the sender's verify / close / reopen / edit / escalate |
 | Who closes a task | Nobody needs to: Completed verifies itself after 2 working days and closes 3 working days later (timers) |
 | Clock pauses | None. Blocked and Waiting for another department keep the clock running; "Ask requester" removed (owners ask in the chat) |
+| Person-to-person tasks (28 Nov) | Private to the sender, the receiver and whoever it's reassigned to. A lead or head sees it only when it's escalated to them (then fully, with actions) or a staff request (reassign, reject, transfer) waits on them. The Team screen counts these tasks in its numbers but never lists them; no overdue alerts about them go to leads |
+| Sender reopens (28 Nov) | The sender's only button: Reopen, on Completed / Verified / Closed within 7 days |
 | Demo data on Vercel | Shared Postgres (Supabase or Neon from Vercel Storage) through `api/state.js`; every browser and account sees the same tasks |
 
 ## Contradictions found in the spec (for Review 1)

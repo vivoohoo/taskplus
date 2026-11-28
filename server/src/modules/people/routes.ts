@@ -9,6 +9,7 @@ import { SHIFT_LABELS } from '../../workflow/time';
 import { canSeeThread, currentUser } from '../access';
 import { withTasks } from '../messages/service';
 import { manages, loadOrg } from '../org';
+import { escalatedTo, hiddenFromLeads } from '../../workflow/engine';
 
 /** Alert kinds. Must-haves (Ornate / User Guide section 19) can't be switched off. */
 export const NOTIF_KINDS = [
@@ -118,7 +119,8 @@ export async function peopleRoutes(app: FastifyInstance) {
     const t = await db.selectFrom('tasks').selectAll().where('id', '=', id).executeTakeFirst();
     if (!t) throw notFound('Task not found.');
     const thread = await db.selectFrom('threads').selectAll().where('id', '=', t.thread_id).executeTakeFirstOrThrow();
-    if (!canSeeThread(me, thread) && t.assignee_id !== me.id && !(thread.type !== 'self' && t.assignee_id && manages(await loadOrg(db), me.id, t.assignee_id))) throw forbidden();
+    if (!canSeeThread(me, thread) && t.assignee_id !== me.id && !escalatedTo(t).includes(me.id)
+      && !(thread.type !== 'self' && !hiddenFromLeads(thread, t, me.id) && t.assignee_id && manages(await loadOrg(db), me.id, t.assignee_id))) throw forbidden();
     const events = await db.selectFrom('task_events').leftJoin('users', 'users.id', 'task_events.actor_id')
       .select(['task_events.type', 'task_events.payload', 'task_events.created_at', 'users.name as actorName'])
       .where('task_id', '=', id).orderBy('task_events.created_at').execute();
