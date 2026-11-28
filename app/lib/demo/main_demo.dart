@@ -35,8 +35,8 @@ Future<void> main() async {
   // On Vercel with a database: everyone shares the demo's data. Elsewhere it lives in this tab.
   final sync = await VercelSync.connect();
   demoShared = sync;
-  // On Vercel the AI fills in each new task (api/ai.js); elsewhere the keyword reader does.
-  final api = DemoApi(null, sync, sync != null ? vercelAi() : null);
+  // On Vercel the AI fills in each new task (api/ai.js), with or without the shared database; elsewhere the keyword reader does.
+  final api = DemoApi(null, sync, vercelAi());
   loginPage = () => const DemoLogin();
   // On claude.ai: dictation and read-aloud come from the page host (asked for in the background; the app starts at once).
   speechHost = demoSpeech;
