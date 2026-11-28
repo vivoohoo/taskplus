@@ -23,7 +23,8 @@ export async function taskRoutes(app: FastifyInstance) {
     const task = await db.selectFrom('tasks').selectAll().where('id', '=', id).executeTakeFirst();
     if (!task) throw notFound('Task not found.');
     const thread = await db.selectFrom('threads').selectAll().where('id', '=', task.thread_id).executeTakeFirstOrThrow();
-    if (!canSeeThread(me, thread) && task.assignee_id !== me.id) throw forbidden();
+    // The owner's leads (up the reporting line) and department head may open it too, even in a person-to-person chat.
+    if (!canSeeThread(me, thread) && task.assignee_id !== me.id && !(thread.type !== 'self' && task.assignee_id && manages(await loadOrg(db), me.id, task.assignee_id))) throw forbidden();
     const senderId = (await db.selectFrom('messages').select('sender_id').where('id', '=', task.message_id).executeTakeFirstOrThrow()).sender_id;
     return { task, thread, senderId };
   }

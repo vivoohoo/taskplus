@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestApp, type TestApp } from './helpers/app';
 
 let t: TestApp;
-const P = { riya: '9800000002', karan: '9800000003', supLead: '9800000001', tushar: '9800000004', kunal: '9800000011', amit: '9800000012' };
+const P = { riya: '9800000002', karan: '9800000003', supLead: '9800000001', tushar: '9800000004', dhaval: '9800000005', kunal: '9800000011', amit: '9800000012' };
 const tok: Record<string, string> = {};
 let dev = '', sup = '';
 
@@ -149,5 +149,17 @@ describe('the bell', () => {
     await as('riya').post('/v1/notifications/read-all');
     expect((await as('riya').get('/v1/notifications')).body.unread).toBe(0);
     expect((await as('karan').post(`/v1/notifications/${mine.id}/read`)).status).toBe(404);
+  });
+});
+
+describe('who can open a person-to-person task', () => {
+  it("sender, owner, the owner's leads and head; not others", async () => {
+    const { taskId } = await send('riya', { targetType: 'user', targetId: id('kunal') }, 'Profit NX invoice GST wrong for Sunrise Pharma');
+    await as('kunal').post(`/v1/tasks/${taskId}/actions/accept`);
+    for (const who of ['riya', 'kunal', 'dhaval', 'tushar'] as const) {
+      expect((await as(who).get(`/v1/tasks/${taskId}`)).status, who).toBe(200);
+      expect((await as(who).get(`/v1/tasks/${taskId}/history`)).status, who).toBe(200);
+    }
+    for (const who of ['amit', 'karan'] as const) expect((await as(who).get(`/v1/tasks/${taskId}`)).status, who).toBe(403);
   });
 });
