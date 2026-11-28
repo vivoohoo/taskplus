@@ -398,7 +398,11 @@ class DemoBackend {
     final s = t['status'] as String, out = <String>{};
     if (_finished.contains(s) && s != 'Closed') return [];
     // The sender sees a statement, never buttons (owner decision 27 Nov).
-    if (requester) return [];
+    if (requester) {
+      final closedAt = t['closedAt'] == null ? null : DateTime.parse(t['closedAt'] as String);
+      final reopenable = s == 'Completed' || s == 'Verified' || (s == 'Closed' && closedAt != null && now().difference(closedAt).inDays < 7);
+      return reopenable ? ['reopen'] : [];
+    }
     if (lead && t['request'] != null) return ['approve_request', 'refuse_request'];
     if (lead && t['reassignAsker'] != null && _active.contains(s)) return ['reassign', 'keep'];
     if (s == 'Open') {

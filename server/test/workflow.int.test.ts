@@ -76,8 +76,11 @@ describe('ask the requester, block, complete, verify, reopen', () => {
     expect((await act('nisha', taskId, 'unblock')).body.task.status).toBe('InProgress');
     expect((await act('nisha', taskId, 'complete', {})).status).toBe(400); // remarks needed
     await act('nisha', taskId, 'complete', { remarks: 'Gateway restarted' });
-    expect((await view('karan', taskId)).actions).toEqual([]);
-    for (const a of ['verify', 'close', 'reopen', 'cancel', 'escalate']) expect((await act('karan', taskId, a, { reason: 'x' })).status).toBe(403);
+    // Done: the sender's only button is Reopen.
+    expect((await view('karan', taskId)).actions).toEqual(['reopen']);
+    for (const a of ['verify', 'close', 'cancel', 'escalate']) expect((await act('karan', taskId, a, { reason: 'x' })).status).toBe(403);
+    const re = await act('karan', taskId, 'reopen', { reason: 'Stuck again this morning' });
+    expect(re.body.task).toMatchObject({ status: 'InProgress', actions: [] });
   });
 });
 

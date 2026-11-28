@@ -6,7 +6,12 @@ import 'models.dart';
 import 'outbox.dart';
 import 'repository.dart';
 
-final repositoryProvider = Provider<Repository>((ref) => Repository(ref.watch(apiClientProvider), absolute: ref.watch(serverUrlProvider.notifier).absolute));
+/// Rebuilt when the signed-in person changes, so every list, count and the bell reload for the new person
+/// (switching people on one phone, or demo accounts).
+final repositoryProvider = Provider<Repository>((ref) {
+  ref.watch(authProvider.select((u) => u.value?.id));
+  return Repository(ref.watch(apiClientProvider), absolute: ref.watch(serverUrlProvider.notifier).absolute);
+});
 
 final outboxDbProvider = Provider<OutboxDb>((ref) {
   final db = OutboxDb();

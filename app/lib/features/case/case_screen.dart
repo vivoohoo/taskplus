@@ -136,7 +136,7 @@ class _CaseScreenState extends ConsumerState<CaseScreen> {
       // The sender: their own words and where it stands, no update cards and no actions (owner decision 27 Nov).
       return ListView(padding: const EdgeInsets.fromLTRB(12, 10, 12, 16), children: [
         for (final x in entries.where((x) => x.$3 != 'u')) x.$2,
-        SenderStatement(task: t),
+        SenderStatement(task: t, onChanged: (_) => _reload()),
       ]);
     }
     final list = <Widget>[

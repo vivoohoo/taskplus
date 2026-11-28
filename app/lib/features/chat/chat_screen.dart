@@ -94,7 +94,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (me != null && i.message.senderId == me.id) {
       return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
         SentBubble(item: i, replyTo: replyTo),
-        if (i.task != null && !i.task!.isNote) SenderStatement(task: i.task!, onTap: () => setState(() => _replyTo = i.task)),
+        if (i.task != null && !i.task!.isNote) SenderStatement(task: i.task!, onTap: () => setState(() => _replyTo = i.task), onChanged: ref.read(chatProvider(widget.threadId).notifier).applyTask),
         if (i.task != null && i.task!.isNote) Align(
           alignment: Alignment.centerRight,
           child: ConstrainedBox(

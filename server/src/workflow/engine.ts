@@ -62,7 +62,12 @@ export function available(c: Ctx): Action[] {
   if (FINISHED.includes(t.status) && t.status !== 'Closed') return [];
   // Owner decision 27 Nov: the sender sees a one-line statement, never cards or buttons. Completed work verifies and
   // closes itself on the timers; only the people receiving a task act on it.
-  if (r.requester) return [];
+  if (r.requester) {
+    // The one thing a sender can do (owner decision 28 Nov): reopen work that came back done, within 7 days of closing.
+    const reopenable = t.status === 'Completed' || t.status === 'Verified'
+      || (t.status === 'Closed' && !!t.closed_at && now - new Date(t.closed_at).getTime() <= REOPEN_WINDOW_MS);
+    return reopenable ? ['reopen'] : [];
+  }
 
   // A staff request waiting on this lead: only the answer to it (Ornate rule: nothing else to misclick).
   if (r.lead && pendingRequest(t)) return ['approve_request', 'refuse_request'];

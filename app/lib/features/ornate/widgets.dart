@@ -1,9 +1,11 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Small pieces of Ornate Samanvay's look shared by the lists, chats and case page.
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/theme.dart';
 import '../../data/models.dart';
+import '../task_card/task_actions.dart';
 
 /// Ornate's status names.
 String statusLabel(String s) => switch (s) {
@@ -212,14 +214,18 @@ String statementOf(Task t) {
   return '${t.ticketNo ?? ''} · $subject — assigned to ${t.assignedTo ?? '…'} · $state';
 }
 
-class SenderStatement extends StatelessWidget {
-  const SenderStatement({super.key, required this.task, this.onTap});
+class SenderStatement extends ConsumerWidget {
+  const SenderStatement({super.key, required this.task, this.onTap, this.onChanged});
   final Task task;
   /// Reply about this task in the chat.
   final VoidCallback? onTap;
+  /// After Reopen: the screen reloads the task.
+  final void Function(Task)? onChanged;
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final o = context.o;
+    // The sender's only button (owner decision 28 Nov): Reopen, once the work comes back done.
+    final canReopen = task.actions.contains('reopen');
     return Align(
       alignment: Alignment.centerRight,
       child: GestureDetector(
@@ -230,7 +236,23 @@ class SenderStatement extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.78),
           decoration: BoxDecoration(color: o.bg.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)),
-          child: Text(statementOf(task), style: TextStyle(fontSize: 12.5, color: o.muted)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+            Text(statementOf(task), style: TextStyle(fontSize: 12.5, color: o.muted)),
+            if (canReopen) TextButton(
+              key: Key('reopen-${task.id}'),
+              onPressed: () async {
+                try {
+                  final t = await runAction(context, ref, task, 'reopen');
+                  if (t == null) return;
+                  onChanged?.call(t);
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reopened')));
+                } catch (e) {
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+                }
+              },
+              child: const Text('Reopen'),
+            ),
+          ]),
         ),
       ),
     );

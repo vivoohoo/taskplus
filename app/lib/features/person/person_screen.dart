@@ -153,7 +153,7 @@ class _PersonScreenState extends ConsumerState<PersonScreen> {
     if (out && !i.task!.isNote) {
       return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
         bubble,
-        SenderStatement(task: i.task!, onTap: () => setState(() => _replyTo = i.task)),
+        SenderStatement(task: i.task!, onTap: () => setState(() => _replyTo = i.task), onChanged: (_) => ref.invalidate(timelineProvider(_key))),
       ]);
     }
     return Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [

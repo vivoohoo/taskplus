@@ -16,7 +16,10 @@ class CaseQueryState extends Notifier<CaseQuery> {
   CaseQueryState(this.tab);
   final String tab;
   @override
-  CaseQuery build() => CaseQuery(tab: tab);
+  CaseQuery build() {
+    ref.watch(authProvider.select((u) => u.value?.id)); // a new person starts with clear filters
+    return CaseQuery(tab: tab);
+  }
   void set(CaseQuery q) => state = q;
 }
 
@@ -24,7 +27,7 @@ class CaseQueryState extends Notifier<CaseQuery> {
 final paneProvider = NotifierProvider<Pane, String?>(Pane.new);
 class Pane extends Notifier<String?> {
   @override
-  String? build() => null;
+  String? build() { ref.watch(authProvider.select((u) => u.value?.id)); return null; }
   void show(String? v) => state = v;
 }
 bool isWide(BuildContext context) => MediaQuery.sizeOf(context).width >= 900;
