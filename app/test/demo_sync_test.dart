@@ -53,4 +53,28 @@ void main() {
     // Both saved on top of each other, nothing lost.
     expect(store.version, greaterThanOrEqualTo(3));
   });
+
+  test('a new task takes its fields from the AI; slash values still win; the keyword reader steps in when the AI fails', () async {
+    Map<String, dynamic>? asked;
+    final api = DemoApi(null, null, (input) async {
+      asked = input;
+      return {'subject': 'Profit NX Login Failure', 'module': 'Other', 'customerName': 'Mehta Traders', 'customerPhone': null,
+        'customerLocation': 'Rajkot', 'licenseNo': null, 'priority': 'Medium', 'details': 'Login fails for all users.'};
+    });
+    final riya = await signIn(api, '9800000002');
+    final dhavalId = api.backend.users.firstWhere((u) => u['name'] == 'Dhaval Dalsania')['id'] as String;
+    final th = await riya.openThread('user', dhavalId);
+    final t = (await riya.send(Draft(clientMsgId: 'ai1', threadId: th.id, kind: 'text', bodyText: 'mehta traders rajkot login nahi ho raha',
+        overrides: const {'priority': 'High'}))).task!;
+    expect(asked, containsPair('recipientLabel', 'Dhaval Dalsania'));
+    expect(asked, containsPair('senderName', 'Riya Shah'));
+    expect([t.subject, t.customerName, t.customerLocation, t.priority], ['Profit NX Login Failure', 'Mehta Traders', 'Rajkot', 'High']);
+
+    final broken = DemoApi(null, null, (_) async => throw Exception('AI down'));
+    final r2 = await signIn(broken, '9800000002');
+    final th2 = await r2.openThread('user', dhavalId);
+    final t2 = (await r2.send(Draft(clientMsgId: 'ai2', threadId: th2.id, kind: 'text', bodyText: 'Urgent: Mehta Traders cannot print'))).task!;
+    expect(t2.priority, 'High');
+    expect(t2.subject, isNotEmpty);
+  });
 }

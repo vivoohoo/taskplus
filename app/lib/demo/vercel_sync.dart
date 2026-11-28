@@ -35,3 +35,16 @@ class VercelSync implements DemoSync {
   @override
   Future<void> reset() => _dio.delete('');
 }
+
+/// The demo's AI on Vercel (api/ai.js). Returns null when the site has no AI key or the AI fails: the keyword reader steps in.
+DemoAi vercelAi() {
+  final dio = Dio(BaseOptions(baseUrl: Uri.base.resolve('/api/ai').toString(), connectTimeout: const Duration(seconds: 6),
+      receiveTimeout: const Duration(seconds: 15), validateStatus: (_) => true));
+  var off = false;
+  return (input) async {
+    if (off) return null;
+    final r = await dio.post('', data: input);
+    if (r.statusCode == 503 || r.statusCode == 404) off = true; // no key on this site: stop asking
+    return r.statusCode == 200 && r.data is Map ? (r.data as Map).cast<String, dynamic>() : null;
+  };
+}

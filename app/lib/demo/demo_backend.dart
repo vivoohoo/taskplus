@@ -1,6 +1,6 @@
 // In-browser demo backend for the shared web link: the same API the real server offers, answered from memory,
-// with sample people, teams and tasks. The workflow rules mirror server/src/workflow/engine.ts; the "AI" is a
-// simple keyword reader (the real app uses an LLM). Nothing leaves the browser.
+// with sample people, teams and tasks. The workflow rules mirror server/src/workflow/engine.ts. On Vercel the ticket
+// fields come from a real LLM (api/ai.js); elsewhere, or if that fails, from a simple keyword reader.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -16,10 +16,14 @@ abstract class DemoSync {
   Future<void> reset();
 }
 
+/// Turns a message into ticket fields with a real LLM (Vercel's /api/ai). Null: use the keyword reader.
+typedef DemoAi = Future<Map<String, dynamic>?> Function(Map<String, dynamic> input);
+
 class DemoApi implements HttpClientAdapter {
-  DemoApi([DemoBackend? backend, this.sync]) : backend = backend ?? DemoBackend.seeded();
+  DemoApi([DemoBackend? backend, this.sync, this.ai]) : backend = backend ?? DemoBackend.seeded();
   final DemoBackend backend;
   final DemoSync? sync;
+  final DemoAi? ai;
   int _version = 0;
   DateTime _pulled = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> _queue = Future.value();
@@ -54,7 +58,15 @@ class DemoApi implements HttpClientAdapter {
     }
     final auth = '${o.headers['authorization'] ?? ''}';
     final me = auth.startsWith('Bearer demo:') ? auth.substring(12) : null;
-    final b = body is Map ? Map<String, dynamic>.from(body) : const <String, dynamic>{};
+    final b = body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{};
+    // A new task: ask the AI first (a second or two), like the server's background job.
+    final send = RegExp(r'/threads/([^/]+)/messages$').firstMatch(o.uri.path);
+    if (ai != null && o.method == 'POST' && send != null) {
+      try {
+        final input = backend.aiInput(me, send.group(1)!, b);
+        if (input != null) b['_ai'] = await ai!(input);
+      } catch (_) {/* keyword reader instead */}
+    }
     final s = sync;
     if (s == null) {
       final (status, json) = _handle(o, b, me);
@@ -254,7 +266,32 @@ class DemoBackend {
   bool canSee(Map<String, dynamic> me, Map<String, dynamic> th) =>
       th['type'] == 'direct' ? th['a'] == me['id'] || th['b'] == me['id'] : th['type'] == 'self' ? th['requester'] == me['id'] : th['requester'] == me['id'] || th['dept'] == me['dept'];
 
-  // ---------------------------------------------------------------- the "AI" reader (demo only)
+  /// What the AI needs for a new task's message, or null (a reply, nothing typed, a chat I can't see).
+  Map<String, dynamic>? aiInput(String? meId, String threadId, Map<String, dynamic> body) {
+    final text = (body['bodyText'] as String?)?.trim();
+    if (meId == null || body['replyToTaskId'] != null || text == null || text.isEmpty) return null;
+    final th = threads.where((t) => t['id'] == threadId).firstOrNull;
+    final me = users.where((u) => u['id'] == meId).firstOrNull;
+    if (th == null || me == null || !canSee(me, th)) return null;
+    final other = th['type'] == 'direct' ? _user(th['a'] == meId ? th['b'] : th['a']) : null;
+    final dept = _dept(th['type'] == 'self' ? me['dept'] : th['dept'] ?? other?['dept']);
+    final team = teams.where((t) => t['id'] == th['team']).firstOrNull;
+    return {'text': text, 'modules': dept['modules'], 'departmentName': dept['name'], 'senderName': me['name'],
+      'recipientLabel': other?['name'] ?? (th['type'] == 'self' ? 'their own private notes' : team != null ? 'the ${team['name']} team' : 'the ${dept['name']} department')};
+  }
+
+  /// The sender's slash-command values always win over the AI (server/src/ai/validate.ts step 5).
+  Map<String, dynamic> _withOverrides(Map<String, dynamic> ai, List<String> modules, Map<String, String> o) {
+    final c = o['customer'];
+    return {...ai,
+      if (o['priority'] != null) 'priority': o['priority'],
+      if (o['module'] != null) 'module': modules.contains(o['module']) ? o['module'] : 'Other',
+      if (o['license'] != null) 'licenseNo': o['license']!.trim().toUpperCase(),
+      if (c != null && RegExp(r'^[\d\s+()-]+$').hasMatch(c)) 'customerPhone': c.replaceAll(RegExp(r'\D'), '')
+      else if (c != null) 'customerName': c.trim()};
+  }
+
+  // ---------------------------------------------------------------- the keyword reader (demo fallback when there's no AI)
   Map<String, dynamic> structure(String text, List<String> modules, Map<String, String> overrides) {
     final low = text.toLowerCase();
     var priority = RegExp(r'critical|server down|nobody can|down for all').hasMatch(low) ? 'Critical'
@@ -329,7 +366,9 @@ class DemoBackend {
     final dept = note ? me['dept'] as String? : th['dept'] as String? ?? _user(th['a'] == me['id'] ? th['b'] : th['a'])['dept'] as String?;
     final overrides = Map<String, String>.from((body['overrides'] as Map?) ?? const {});
     // A recorded voice note has no words in the demo (the real app transcribes it on the server).
-    final s = structure(text ?? (voice ? 'Voice note' : ''), List<String>.from(_dept(dept)['modules'] as List), overrides);
+    final modules = List<String>.from(_dept(dept)['modules'] as List);
+    final s = body['_ai'] is Map ? _withOverrides(Map<String, dynamic>.from(body['_ai'] as Map), modules, overrides)
+        : structure(text ?? (voice ? 'Voice note' : ''), modules, overrides);
     final ticketNo = parent != null ? '${parent['ticketNo']}/T${tasks.where((x) => x['parent'] == parent['id']).length + 2}' : 'ORN-SS-2627-${(++_ticket).toString().padLeft(5, '0')}';
     final t = {'id': _id('TK'), 'message': m['id'], 'thread': th['id'], 'ticketNo': ticketNo, 'parent': parent?['id'], 'note': note,
       ...s, 'status': 'Open', 'assignee': null, 'tagged': body['taggedUserId'], 'dept': th['dept'], 'team': th['team'], 'aiStatus': 'done',

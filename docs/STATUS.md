@@ -13,7 +13,7 @@ Phase 1 is built. Phases 2 and 3 have not started. Phase 2 waits on the leadersh
 | 3 | One timeline per person / department | Done | Sent on the right, received on the left; one chat per sender per department |
 | 4 | Single input box: text, dictation, voice notes, files | Done | Composer; outbox keeps messages sent offline |
 | 5 | Slash commands `/priority` `/customer` `/license` `/module` | Done | `/customer` picks from the customer list |
-| 6 | AI structuring to JSON | Done | Background job; Groq works, Gemini key invalid; slash values override the AI |
+| 6 | AI structuring to JSON | Done | Background job; Groq works, Gemini key invalid; slash values override the AI. Vercel demo: same prompt via `api/ai.js` (needs `GROQ_API_KEY` in Vercel) |
 | 7 | Sender vs recipient view | Done | Recipient gets the structured card; sender also sees it (owner decision D5) |
 | 8 | Compact filters (3) | Done | My Pending, Overdue, Sent by me |
 | 9 | Leadership review on mobile | **Pending** | Needs an APK in leadership's hands, or the demo link: https://claude.ai/artifact/13ZYxwZ5UbfrhD6sGZhsdg |

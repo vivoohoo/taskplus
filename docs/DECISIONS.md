@@ -63,6 +63,7 @@ Keep Ornate Samanvay's UI and basic features with every Task Plus feature; Phase
 | Clock pauses | None. Blocked and Waiting for another department keep the clock running; "Ask requester" removed (owners ask in the chat) |
 | Person-to-person tasks (28 Nov) | Private to the sender, the receiver and whoever it's reassigned to. A lead or head sees it only when it's escalated to them (then fully, with actions) or a staff request (reassign, reject, transfer) waits on them. The Team screen counts these tasks in its numbers but never lists them; no overdue alerts about them go to leads. Not accepted in time: escalates to the receiver's team lead |
 | Sender reopens (28 Nov) | The sender's only button: Reopen, on Completed / Verified / Closed within 7 days |
+| Web demo AI (28 Nov) | Real AI fills in each new task on the Vercel demo: `api/ai.js` calls Groq with the server's prompt; the key is `GROQ_API_KEY` in Vercel's settings, never in the browser. No key, or the AI fails: the keyword reader. Free tier, made-up customer data only |
 | Demo data on Vercel | Shared Postgres (Supabase or Neon from Vercel Storage) through `api/state.js`; every browser and account sees the same tasks |
 
 ## Contradictions found in the spec (for Review 1)
