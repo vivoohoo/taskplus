@@ -78,6 +78,8 @@ class TaskPlusApp extends ConsumerWidget {
         themeMode: look.mode,
         routerConfig: ref.watch(routerProvider),
         debugShowCheckedModeBanner: false,
+        // No Android 12 'stretch' when a list hits its top or bottom: chats and lists stay as they are (owner, 28 Nov).
+        scrollBehavior: const MaterialScrollBehavior().copyWith(overscroll: false),
       );
   }
 }
